@@ -37,13 +37,16 @@ jobs:
 
       # 2. PR 머지 전, 충돌 방지를 위해 브랜치 최신화 여부를 검사합니다.
       - name: Check if branch is up-to-date with base branch
-        if: github.event_name == 'pull_request' && !(github.base_ref == 'main' && github.head_ref == 'develop')
+        if: github.event_name == 'pull_request'
         run: |
           set -euo pipefail
           TARGET_BRANCH="${{ github.base_ref }}"
+          PR_HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          
           git fetch origin "${TARGET_BRANCH}:refs/remotes/origin/${TARGET_BRANCH}"
           
-          if [ "$(git merge-base "origin/${TARGET_BRANCH}" HEAD)" != "$(git rev-parse "origin/${TARGET_BRANCH}")" ]; then
+          # "$PR_HEAD_SHA"를 넣어 정확한 브랜치 상태를 검사합니다.
+          if [ "$(git merge-base "origin/${TARGET_BRANCH}" "$PR_HEAD_SHA")" != "$(git rev-parse "origin/${TARGET_BRANCH}")" ]; then
             echo "::error::현재 브랜치가 ${TARGET_BRANCH} 최신 커밋을 포함하지 않습니다. 충돌 방지를 위해 Merge나 Rebase를 진행해주세요."
             exit 1
           fi
@@ -98,11 +101,9 @@ jobs:
               break
             fi
           
-            # Actuator /health 엔드포인트가 없다면 기본 API 경로(예: /api/v1/test 등)로 변경 필요
-            code="$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/health || true)"
-            if [ "$code" = "200" ] || [ "$code" = "404" ]; then 
-              # 404도 서버가 켜져서 응답한 것이므로 기동 성공으로 간주할 수 있음
-              echo "기동 검증 성공 (서버 응답 정상)"
+            code="$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/actuator/health || true)"
+            if [ "$code" = "200" ]; then
+              echo "기동 헬스체크 성공 (DB 연결 및 앱 상태 정상)"
               exit 0
             fi
             sleep 2
