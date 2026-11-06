@@ -4,6 +4,10 @@ on:
   push:
     branches: [ "main", "develop" ] # main이나 develop에 코드가 머지/푸시될 때 실행
 
+concurrency:
+  group: deploy-ec2-server
+  cancel-in-progress: true
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -40,6 +44,7 @@ jobs:
           host: ${{ secrets.PRIVATE_HOST }}
           username: ${{ secrets.PRIVATE_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          fingerprint: ${{ secrets.PRIVATE_FINGERPRINT }}
           proxy_host: ${{ secrets.BASTION_HOST }}
           proxy_username: ${{ secrets.BASTION_USER }}
           proxy_key: ${{ secrets.SSH_PRIVATE_KEY }}
@@ -54,9 +59,11 @@ jobs:
           host: ${{ secrets.PRIVATE_HOST }}
           username: ${{ secrets.PRIVATE_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          fingerprint: ${{ secrets.PRIVATE_FINGERPRINT }}
           proxy_host: ${{ secrets.BASTION_HOST }}
           proxy_username: ${{ secrets.BASTION_USER }}
           proxy_key: ${{ secrets.SSH_PRIVATE_KEY }}
+          proxy_fingerprint: ${{ secrets.BASTION_FINGERPRINT }}
           script: |
             chmod +x ~/scholarship-deploy/deploy.sh
             ~/scholarship-deploy/deploy.sh
