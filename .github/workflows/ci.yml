@@ -61,6 +61,8 @@ jobs:
 
       # 4. 단위 테스트(H2) 및 bootJar 빌드
       - name: Test & build with Gradle
+        env:
+          SPRING_PROFILES_ACTIVE: test
         run: ./gradlew clean build
 
       # 5. MySQL 컨테이너와 연결하여 애플리케이션 실제 기동(Boot) 테스트
