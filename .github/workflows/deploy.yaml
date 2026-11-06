@@ -1,0 +1,62 @@
+name: Backend CD (Deploy to Private EC2)
+
+on:
+  push:
+    branches: [ "main", "develop" ] # main이나 develop에 코드가 머지/푸시될 때 실행
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      # 1. 빌드 (CI에서 이미 테스트를 거쳤으므로 -x test로 빠르게 빌드만 수행)
+      - name: Build with Gradle (without tests)
+        run: ./gradlew clean bootJar -x test
+
+      # 2. 서버로 보낼 파일들(jar, deploy.sh)을 한 폴더(deploy-staging)에 모음
+      - name: Prepare deployment files
+        run: |
+          mkdir -p deploy-staging
+          cp build/libs/*SNAPSHOT.jar deploy-staging/
+          cp scripts/deploy.sh deploy-staging/
+
+      # 3. Bastion Host를 경유하여 Private EC2로 파일 전송 (SCP)
+      - name: Transfer files to Private EC2 via Bastion
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.PRIVATE_HOST }}
+          username: ${{ secrets.PRIVATE_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          proxy_host: ${{ secrets.BASTION_HOST }}
+          proxy_username: ${{ secrets.BASTION_USER }}
+          proxy_key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "deploy-staging/*"
+          target: "~/scholarship-deploy"
+          strip_components: 1 # 서버에 deploy-staging 폴더명 없이 알맹이만 깔끔하게 넣음
+
+      # 4. Bastion Host를 경유하여 Private EC2에서 배포 스크립트 실행 (SSH)
+      - name: Execute Deployment Script
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PRIVATE_HOST }}
+          username: ${{ secrets.PRIVATE_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          proxy_host: ${{ secrets.BASTION_HOST }}
+          proxy_username: ${{ secrets.BASTION_USER }}
+          proxy_key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            chmod +x ~/scholarship-deploy/deploy.sh
+            ~/scholarship-deploy/deploy.sh
