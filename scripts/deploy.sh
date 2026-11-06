@@ -29,7 +29,24 @@ if [ -z "$CURRENT_PID" ]; then
 else
   echo "> kill -15 $CURRENT_PID"
   kill -15 $CURRENT_PID
-  sleep 5
+
+  # 구버전 프로세스가 포트를 완전히 반납할 때까지 최대 15초 동안 8080 포트 점유 여부 확인
+  echo "> 이전 프로세스($CURRENT_PID)의 종료 및 포트 해제 대기 중..."
+  for i in {1..15}
+  do
+    if ! ps -p $CURRENT_PID > /dev/null; then
+      echo "> ✅ 이전 프로세스가 안전하게 종료되었습니다."
+      break
+    fi
+    sleep 1
+  done
+
+  # 만약 15초가 지나도 안 죽었으면 강제 종료(-9)
+  if ps -p $CURRENT_PID > /dev/null; then
+    echo "> ⚠️ 이전 프로세스가 정상 종료되지 않아 강제 종료(kill -9)합니다."
+    kill -9 $CURRENT_PID
+    sleep 2
+  fi
 fi
 
 echo "> 새 애플리케이션 배포 시작"
@@ -44,15 +61,16 @@ echo "> 애플리케이션 기동 대기 및 헬스 체크 시작..."
 # 10초마다 1번씩, 총 6번(최대 60초) 헬스 체크 시도
 for RETRY_COUNT in {1..6}
 do
-  # localhost:8080/actuator/health로 HTTP 요청을 보내 상태 코드(예: 200, 404, 502 등)만 추출
-  RESPONSE_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/actuator/health)
+  # --max-time 5를 주어 5초 안에 응답이 없으면 실패로 간주하고 빠져나오도록 함
+  # curl 명령어 실행 자체가 실패(네트워크 오류, 타임아웃 등)하면 RESPONSE_CODE를 000 등으로 처리
+  RESPONSE_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://localhost:8080/actuator/health || echo "000")
 
   if [ "$RESPONSE_CODE" -eq 200 ]; then
     echo "> ✅ 애플리케이션 기동 완료 및 헬스 체크 성공! (PID: $NEW_PID)"
     exit 0
   fi
 
-  # 응답이 200이 아닌데 프로세스마저 죽어버렸다면 즉시 실패 처리 (빠른 에러 감지)
+  # 응답이 200이 아닌데 프로세스마저 죽어버렸다면 즉시 실패 처리
   if ! ps -p $NEW_PID > /dev/null; then
     echo "> ❌ Error: 기동 중 프로세스가 비정상 종료되었습니다."
     break
