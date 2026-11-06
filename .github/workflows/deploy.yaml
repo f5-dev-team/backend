@@ -2,7 +2,7 @@ name: Backend CD (Deploy to Private EC2)
 
 on:
   push:
-    branches: [ "main", "develop" ] # main이나 develop에 코드가 머지/푸시될 때 실행
+    branches: [ "main" ]
 
 concurrency:
   group: deploy-ec2-server
