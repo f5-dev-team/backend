@@ -69,7 +69,7 @@ jobs:
       - name: Boot application against real infra and verify
         env:
           # application-local.yaml에 필요한 값들을 더미(Dummy) 데이터로 주입하여 에러 방지
-          DB_URL: jdbc:mysql://127.0.0.1:3306/scholarship?useSSL=false&serverTimezone=Asia/Seoul
+          DB_URL: jdbc:mysql://127.0.0.1:3306/scholarship?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true
           DB_USERNAME: root
           DB_PASSWORD: root
           AWS_ACCESS_KEY: dummy-access-key-for-ci
