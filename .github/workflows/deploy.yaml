@@ -48,11 +48,16 @@ jobs:
           proxy_host: ${{ secrets.BASTION_HOST }}
           proxy_username: ${{ secrets.BASTION_USER }}
           proxy_key: ${{ secrets.SSH_PRIVATE_KEY }}
+          proxy_fingerprint: ${{ secrets.BASTION_FINGERPRINT }}
           source: "deploy-staging/*"
           target: "~/scholarship-deploy"
           strip_components: 1 # 서버에 deploy-staging 폴더명 없이 알맹이만 깔끔하게 넣음
 
-      # 4. Bastion Host를 경유하여 Private EC2에서 배포 스크립트 실행 (SSH)
+      # 4. 전송할 JAR 파일의 정확한 이름을 추출하여 환경 변수에 저장
+      - name: Extract JAR name
+        run: echo "JAR_FILE=$(basename deploy-staging/*.jar)" >> $GITHUB_ENV
+
+      # 5. Bastion Host를 경유하여 Private EC2에서 배포 스크립트 실행 (SSH)
       - name: Execute Deployment Script
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -66,4 +71,4 @@ jobs:
           proxy_fingerprint: ${{ secrets.BASTION_FINGERPRINT }}
           script: |
             chmod +x ~/scholarship-deploy/deploy.sh
-            ~/scholarship-deploy/deploy.sh
+            ~/scholarship-deploy/deploy.sh ${{ env.JAR_FILE }}
