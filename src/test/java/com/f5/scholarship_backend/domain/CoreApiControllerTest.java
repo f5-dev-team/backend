@@ -205,6 +205,32 @@ class CoreApiControllerTest {
 		verifyNoInteractions(studentProfileService, analysisService);
 	}
 
+	/** 본문이 유효할 때 인증 오류는 쿼리 파라미터 오류보다 우선하며 Service를 호출하지 않는다. */
+	@ParameterizedTest
+	@ValueSource(ints = {0, 1, 2, 3})
+	void invalidPrincipalTakesPriorityOverUnknownQuery(int scenario) throws Exception {
+		String name = switch (scenario) {
+			case 1 -> null;
+			case 2 -> "";
+			default -> "   ";
+		};
+		var profile = put(PROFILE_URL).param("unexpected", "value")
+				.contentType(MediaType.APPLICATION_JSON).content(PROFILE);
+		var analysis = post(ANALYSIS_URL).param("unexpected", "value")
+				.contentType(MediaType.APPLICATION_JSON).content("{\"profileVersion\":1}");
+		if (scenario != 0) {
+			profile.principal(() -> name);
+			analysis.principal(() -> name);
+		}
+		for (var request : java.util.List.of(profile, analysis)) {
+			mockMvc.perform(request)
+					.andExpect(status().isUnauthorized())
+					.andExpect(header().string("WWW-Authenticate", "Bearer"))
+					.andExpect(jsonPath("$.code").value("TOKEN_INVALID"));
+		}
+		verifyNoInteractions(studentProfileService, analysisService);
+	}
+
 	@Test
 	void rejectsUnknownQueryParameters() throws Exception {
 		mockMvc.perform(put(PROFILE_URL).principal(() -> "101").param("userId", "999")

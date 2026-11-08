@@ -49,10 +49,10 @@ public class OpenApiConfig {
 		return api -> api.getPaths().forEach((path, item) -> {
 			if (path.startsWith("/api/v1/")) {
 				item.readOperations().forEach(operation -> {
-					operation.getResponses().addApiResponse("400", errorResponse("VALIDATION_ERROR: 입력 오류"));
-					operation.getResponses().addApiResponse("401", errorResponse("TOKEN_INVALID: 인증 정보 없음 또는 유효하지 않음"));
-					operation.getResponses().addApiResponse("500", errorResponse("INTERNAL_SERVER_ERROR: 내부 오류"));
-					operation.getResponses().addApiResponse("503", errorResponse("SERVICE_UNAVAILABLE: 서비스 미연결 또는 일시적 이용 불가"));
+					operation.getResponses().computeIfAbsent("400", code -> errorResponse("VALIDATION_ERROR: 입력 오류"));
+					operation.getResponses().computeIfAbsent("401", code -> errorResponse("TOKEN_INVALID: 인증 정보 없음 또는 유효하지 않음"));
+					operation.getResponses().computeIfAbsent("500", code -> errorResponse("INTERNAL_SERVER_ERROR: 내부 오류"));
+					operation.getResponses().computeIfAbsent("503", code -> errorResponse("SERVICE_UNAVAILABLE: 서비스 미연결 또는 일시적 이용 불가"));
 				});
 			}
 		});

@@ -35,12 +35,12 @@ public class StudentProfileController implements StudentProfileControllerDocs {
 	public ResponseEntity<ApiResponse<StudentProfileResponse>> saveStudentProfile(
 			@Valid @RequestBody StudentProfileSaveRequest request,
 			Principal principal, HttpServletRequest servletRequest) {
-		if (!servletRequest.getParameterMap().isEmpty()) {
-			throw new BusinessException(ErrorCode.VALIDATION_ERROR);
-		}
 		// 인증 모듈이 제공하는 Principal만 사용하며 클라이언트의 userId는 받지 않는다.
 		if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
 			throw new BusinessException(ErrorCode.TOKEN_INVALID);
+		}
+		if (!servletRequest.getParameterMap().isEmpty()) {
+			throw new BusinessException(ErrorCode.VALIDATION_ERROR);
 		}
 		var result = studentProfileService.save(principal.getName(), request);
 		return ResponseEntity.status(result.created() ? HttpStatus.CREATED : HttpStatus.OK)

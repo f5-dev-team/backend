@@ -35,11 +35,11 @@ public class AnalysisController implements AnalysisControllerDocs {
 	public ResponseEntity<ApiResponse<AnalysisCreateResponse>> createAnalysis(
 			@Valid @RequestBody AnalysisCreateRequest request,
 			Principal principal, HttpServletRequest servletRequest) {
-		if (!servletRequest.getParameterMap().isEmpty()) {
-			throw new BusinessException(ErrorCode.VALIDATION_ERROR);
-		}
 		if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
 			throw new BusinessException(ErrorCode.TOKEN_INVALID);
+		}
+		if (!servletRequest.getParameterMap().isEmpty()) {
+			throw new BusinessException(ErrorCode.VALIDATION_ERROR);
 		}
 		var result = analysisService.create(principal.getName(), request.profileVersion());
 		var location = UriComponentsBuilder.fromPath("/api/v1/analyses")
