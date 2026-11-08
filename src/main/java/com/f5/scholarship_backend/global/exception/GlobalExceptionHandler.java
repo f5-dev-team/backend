@@ -38,11 +38,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 	/** 내부 오류의 안전한 진단 정보를 기록하고 상세 내용을 숨긴 500 응답을 반환한다. */
 	@ExceptionHandler(Exception.class)
 	public ResponseEntity<Object> handleUnexpectedException(Exception exception, WebRequest request) {
-		// 원본 메시지·원인·suppressed 예외는 복사하지 않고 클래스 이름과 발생 위치만 기록한다.
-		Throwable sanitized = new Throwable(exception.getClass().getName(), null);
-		sanitized.setStackTrace(exception.getStackTrace());
-		log.error("요청 처리 실패: requestId={}, exceptionType={}",
-				requestId(request), exception.getClass().getName(), sanitized);
+		// 예외 객체와 메시지는 넘기지 않고 클래스 이름과 코드 위치만 기록한다.
+		log.error("요청 처리 실패: requestId={}, exceptionType={}, origin={}",
+				requestId(request), exception.getClass().getName(), safeExceptionOrigin(exception));
 		ErrorCode code = ErrorCode.INTERNAL_SERVER_ERROR;
 		return problem(code.getStatus(), code.name(), code.getMessage(), List.of(), new HttpHeaders(), request);
 	}
@@ -92,7 +90,23 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 		return new ResponseEntity<>(problem, headers, status);
 	}
 
-	/** 현재 HTTP 요청에 부여된 서버 생성 추적 ID를 조회한다. */
+	/** 애플리케이션의 첫 스택 위치를 반환하며, 없으면 최상단 위치 또는 unknown을 반환한다. */
+	private String safeExceptionOrigin(Exception exception) {
+		StackTraceElement[] frames = exception.getStackTrace();
+		if (frames.length == 0) {
+			return "unknown";
+		}
+		StackTraceElement origin = frames[0];
+		for (StackTraceElement frame : frames) {
+			if (frame.getClassName().startsWith("com.f5.scholarship_backend.")) {
+				origin = frame;
+				break;
+			}
+		}
+		return origin.getClassName() + "." + origin.getMethodName() + ":" + origin.getLineNumber();
+	}
+
+	/** Spring MVC Servlet 요청에 부여된 서버 생성 추적 ID를 조회한다. */
 	private String requestId(WebRequest request) {
 		return RequestIdFilter.getRequestId(((ServletWebRequest) request).getRequest());
 	}
