@@ -19,6 +19,7 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class OpenApiConfig {
 	@Bean
+	/** API 기본 정보와 Bearer 보안 스키마 및 공통 오류 스키마를 정의한다. */
 	OpenAPI scholarshipOpenApi() {
 		var fieldError = new ObjectSchema()
 				.addProperty("field", new StringSchema())
@@ -43,6 +44,7 @@ public class OpenApiConfig {
 	}
 
 	@Bean
+	/** API 작업에 공통 400·401·500·503 오류 응답 문서를 추가한다. */
 	OpenApiCustomizer commonErrorResponses() {
 		return api -> api.getPaths().forEach((path, item) -> {
 			if (path.startsWith("/api/v1/")) {
@@ -56,6 +58,7 @@ public class OpenApiConfig {
 		});
 	}
 
+	/** 공통 Problem Details 스키마를 참조하는 오류 응답 문서를 생성한다. */
 	private ApiResponse errorResponse(String description) {
 		return new ApiResponse().description(description).content(new Content()
 				.addMediaType("application/problem+json", new MediaType()

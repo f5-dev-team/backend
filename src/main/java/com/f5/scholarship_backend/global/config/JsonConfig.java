@@ -12,6 +12,7 @@ import tools.jackson.databind.type.LogicalType;
 
 @Configuration
 public class JsonConfig {
+	/** 정의되지 않은 JSON 필드와 명세에 없는 자료형 자동 변환을 거부한다. */
 	@Bean
 	JsonMapperBuilderCustomizer strictRequestJson() {
 		return builder -> builder

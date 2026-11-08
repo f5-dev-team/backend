@@ -24,10 +24,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class StudentProfileController implements StudentProfileControllerDocs {
 	private final StudentProfileService studentProfileService;
 
+	/** 학생 정보 저장 Service를 주입한다. */
 	public StudentProfileController(StudentProfileService studentProfileService) {
 		this.studentProfileService = studentProfileService;
 	}
 
+	/** 본인 학생 정보를 전체 저장하고 최초 생성 여부에 따라 201 또는 200 응답을 구성한다. */
 	@Override
 	@PutMapping
 	public ResponseEntity<ApiResponse<StudentProfileResponse>> saveStudentProfile(

@@ -19,6 +19,7 @@ public class RequestIdFilter extends OncePerRequestFilter {
 	public static final String ATTRIBUTE = RequestIdFilter.class.getName() + ".requestId";
 	public static final String HEADER = "X-Request-Id";
 
+	/** 요청 속성의 추적 ID를 반환하고, 없으면 서버에서 생성하여 저장한다. */
 	public static String getRequestId(HttpServletRequest request) {
 		if (request.getAttribute(ATTRIBUTE) instanceof String requestId) {
 			return requestId;
@@ -28,6 +29,7 @@ public class RequestIdFilter extends OncePerRequestFilter {
 		return requestId;
 	}
 
+	/** 요청 ID를 응답 헤더와 MDC에 설정하고 처리가 끝나면 기존 MDC 상태를 복원한다. */
 	@Override
 	protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
 			FilterChain filterChain) throws ServletException, IOException {

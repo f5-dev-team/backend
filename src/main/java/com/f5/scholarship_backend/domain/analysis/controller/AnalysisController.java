@@ -24,10 +24,12 @@ import org.springframework.web.util.UriComponentsBuilder;
 public class AnalysisController implements AnalysisControllerDocs {
 	private final AnalysisService analysisService;
 
+	/** 분석 접수 Service를 주입한다. */
 	public AnalysisController(AnalysisService analysisService) {
 		this.analysisService = analysisService;
 	}
 
+	/** 본인 프로필 버전으로 분석을 접수하고 202 응답과 상태 조회 주소를 구성한다. */
 	@Override
 	@PostMapping
 	public ResponseEntity<ApiResponse<AnalysisCreateResponse>> createAnalysis(

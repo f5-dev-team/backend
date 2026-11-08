@@ -16,6 +16,7 @@ import org.springframework.http.ResponseEntity;
 
 @Tag(name = "분석", description = "장학금 자격 분석 작업")
 public interface AnalysisControllerDocs {
+	/** 분석 접수 API의 요청·응답과 상태 조회 주소를 문서화한다. */
 	@Operation(operationId = "createAnalysis", summary = "장학금 분석 작업 접수",
 			description = "저장된 본인 프로필의 버전으로 분석을 요청합니다. 202는 접수만 의미합니다. "
 					+ "재호출은 새 작업을 생성하는 계약입니다. 현재 DB·작업 실행 및 인증 연동 전 뼈대 단계입니다.")
