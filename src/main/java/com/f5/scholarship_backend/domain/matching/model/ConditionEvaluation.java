@@ -15,6 +15,17 @@ public record ConditionEvaluation(
 		ConditionReason reason
 ) {
 
+	/**
+	 * 조건 식별자와 판정 상태에 맞는 사유·차이값을 검증하여 결과를 생성한다.
+	 *
+	 * @param conditionId 공백이 아닌 조건 식별자
+	 * @param required 필수 조건 여부
+	 * @param status 조건 판정 상태
+	 * @param gap 음수가 아닌 부족량 또는 초과량. 계산할 수 없으면 null
+	 * @param reason 미충족 또는 확인 필요 사유. 충족 상태이면 null
+	 * @throws NullPointerException 판정 상태가 null인 경우
+	 * @throws IllegalArgumentException 식별자가 없거나 판정 상태와 사유·차이값이 일치하지 않는 경우
+	 */
 	public ConditionEvaluation {
 		if (conditionId == null || conditionId.isBlank()) {
 			throw new IllegalArgumentException("조건 ID는 null이거나 공백일 수 없습니다.");
@@ -36,6 +47,16 @@ public record ConditionEvaluation(
 		}
 	}
 
+	/**
+	 * 숫자 비교 결과에 조건 식별자와 필수 여부를 붙여 종합 판정용 결과로 변환한다.
+	 *
+	 * @param conditionId 공백이 아닌 조건 식별자
+	 * @param required 필수 조건 여부
+	 * @param result 숫자 조건 비교 결과
+	 * @return 조건 메타 정보와 숫자 비교 결과를 포함하는 판정 결과
+	 * @throws NullPointerException 비교 결과 또는 그 판정 상태가 null인 경우
+	 * @throws IllegalArgumentException 식별자가 없거나 비교 결과의 값이 판정 규칙과 일치하지 않는 경우
+	 */
 	public static ConditionEvaluation fromNumeric(
 			String conditionId, boolean required, NumericConditionResult result
 	) {
