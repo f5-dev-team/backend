@@ -1,0 +1,115 @@
+name: Backend CI
+
+on:
+  pull_request:
+    branches: [ "main", "develop" ]
+  push:
+    branches: [ "develop" ]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    # 1. 실제 MySQL 컨테이너를 띄워 실환경과 동일한 DB 연결을 검증합니다.
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: scholarship
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h localhost -u root -proot"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      # 2. PR 머지 전, 충돌 방지를 위해 브랜치 최신화 여부를 검사합니다.
+      - name: Check if branch is up-to-date with base branch
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          TARGET_BRANCH="${{ github.base_ref }}"
+          PR_HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          
+          git fetch origin "${TARGET_BRANCH}:refs/remotes/origin/${TARGET_BRANCH}"
+          
+          # "$PR_HEAD_SHA"를 넣어 정확한 브랜치 상태를 검사합니다.
+          if [ "$(git merge-base "origin/${TARGET_BRANCH}" "$PR_HEAD_SHA")" != "$(git rev-parse "origin/${TARGET_BRANCH}")" ]; then
+            echo "::error::현재 브랜치가 ${TARGET_BRANCH} 최신 커밋을 포함하지 않습니다. 충돌 방지를 위해 Merge나 Rebase를 진행해주세요."
+            exit 1
+          fi
+
+      # 3. Java 17 세팅 (현재 프로젝트 버전에 맞춤)
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      # 4. 단위 테스트(H2) 및 bootJar 빌드
+      - name: Test & build with Gradle
+        env:
+          SPRING_PROFILES_ACTIVE: test
+        run: ./gradlew clean build
+
+      # 5. MySQL 컨테이너와 연결하여 애플리케이션 실제 기동(Boot) 테스트
+      - name: Boot application against real infra and verify
+        env:
+          # application-local.yaml에 필요한 값들을 더미(Dummy) 데이터로 주입하여 에러 방지
+          DB_URL: jdbc:mysql://127.0.0.1:3306/scholarship?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true
+          DB_USERNAME: root
+          DB_PASSWORD: root
+          AWS_ACCESS_KEY: dummy-access-key-for-ci
+          AWS_SECRET_KEY: dummy-secret-key-for-ci
+          AWS_S3_BUCKET: dummy-bucket
+          # JWT 시크릿 등 필수 환경변수가 더 있다면 아래에 추가
+        run: |
+          set -euo pipefail
+          LOG=/tmp/scholarship-boot.log
+          : > "$LOG"
+          
+          # plain jar 제외하고 빌드된 진짜 실행 jar 찾기
+          JAR="$(ls build/libs/*.jar | grep -v plain | head -n 1)"
+
+          # 프로필을 local로 강제 지정하여 실행 (위의 env 더미 값들을 읽게 됨)
+          java -jar "$JAR" \
+            --spring.profiles.active=local \
+            >>"$LOG" 2>&1 &
+          PID=$!
+          trap 'kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true' EXIT
+
+          code=""
+          for i in $(seq 1 60); do
+            if ! kill -0 "$PID" 2>/dev/null; then
+              echo "애플리케이션이 기동 중 종료되었습니다 (시도 $i)"
+              break
+            fi
+          
+            code="$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/actuator/health || true)"
+            if [ "$code" = "200" ]; then
+              echo "기동 헬스체크 성공 (DB 연결 및 앱 상태 정상)"
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "기동 헬스체크 실패 (마지막 HTTP 코드=${code:-n/a})"
+          echo "----- 애플리케이션 로그 (마지막 250줄) -----"
+          tail -n 250 "$LOG" || true
+          exit 1

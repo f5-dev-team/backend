@@ -24,6 +24,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+	/** 업무 오류의 상태와 안전한 안내 문구를 Problem Details 응답으로 변환한다. */
 	@ExceptionHandler(BusinessException.class)
 	public ResponseEntity<Object> handleBusinessException(BusinessException exception, WebRequest request) {
 		ErrorCode code = exception.getErrorCode();
@@ -34,15 +35,19 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 		return problem(code.getStatus(), code.name(), code.getMessage(), List.of(), headers, request);
 	}
 
+	/** 내부 오류의 안전한 진단 정보를 기록하고 상세 내용을 숨긴 500 응답을 반환한다. */
 	@ExceptionHandler(Exception.class)
 	public ResponseEntity<Object> handleUnexpectedException(Exception exception, WebRequest request) {
-		// 예외 메시지와 입력값에는 개인정보가 포함될 수 있으므로 기록하지 않는다.
+		// 원본 메시지·원인·suppressed 예외는 복사하지 않고 클래스 이름과 발생 위치만 기록한다.
+		Throwable sanitized = new Throwable(exception.getClass().getName(), null);
+		sanitized.setStackTrace(exception.getStackTrace());
 		log.error("요청 처리 실패: requestId={}, exceptionType={}",
-				requestId(request), exception.getClass().getName());
+				requestId(request), exception.getClass().getName(), sanitized);
 		ErrorCode code = ErrorCode.INTERNAL_SERVER_ERROR;
 		return problem(code.getStatus(), code.name(), code.getMessage(), List.of(), new HttpHeaders(), request);
 	}
 
+	/** Spring MVC 오류의 HTTP 상태와 헤더를 보존하여 공통 오류 형식으로 변환한다. */
 	@Override
 	protected ResponseEntity<Object> handleExceptionInternal(Exception exception, Object body,
 			HttpHeaders headers, HttpStatusCode status, WebRequest request) {
@@ -71,6 +76,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 		return problem(status, codeName, detail, errors, headers, request);
 	}
 
+	/** 표준 필드와 오류 코드·필드 오류·요청 ID를 포함한 캐시 금지 오류 응답을 생성한다. */
 	private ResponseEntity<Object> problem(HttpStatusCode status, String code, String detail,
 			List<FieldErrorResponse> errors, HttpHeaders originalHeaders, WebRequest request) {
 		ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail);
@@ -86,6 +92,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 		return new ResponseEntity<>(problem, headers, status);
 	}
 
+	/** 현재 HTTP 요청에 부여된 서버 생성 추적 ID를 조회한다. */
 	private String requestId(WebRequest request) {
 		return RequestIdFilter.getRequestId(((ServletWebRequest) request).getRequest());
 	}

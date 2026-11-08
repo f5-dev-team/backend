@@ -20,15 +20,18 @@ public enum ErrorCode {
 	private final HttpStatus status;
 	private final String message;
 
+	/** 오류 코드에 HTTP 상태와 사용자에게 공개 가능한 안내 문구를 연결한다. */
 	ErrorCode(HttpStatus status, String message) {
 		this.status = status;
 		this.message = message;
 	}
 
+	/** 오류에 대응하는 HTTP 응답 상태를 반환한다. */
 	public HttpStatus getStatus() {
 		return status;
 	}
 
+	/** 내부 예외 내용을 포함하지 않는 사용자용 안내 문구를 반환한다. */
 	public String getMessage() {
 		return message;
 	}
