@@ -3,3 +3,22 @@ spring:
     name: scholarship-backend
   profiles:
     active: local
+  task:
+    scheduling:
+      pool:
+        size: 2
+
+crawler:
+  enabled: ${CRAWLER_ENABLED:false}
+  board-url: https://www.gachon.ac.kr/bbs/kor/478/artclList.do
+  cron: '0 0 9,18 * * *'
+  zone: Asia/Seoul
+  days: 90
+  max-pages: 20
+  max-posts: 500
+  interval: 2s
+  connect-timeout: 5s
+  request-timeout: 20s
+  max-html-bytes: 5242880
+  run-timeout: 45m
+  lease-duration: 60m
