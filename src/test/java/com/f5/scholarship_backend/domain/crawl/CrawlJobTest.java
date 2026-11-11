@@ -7,6 +7,8 @@ import com.f5.scholarship_backend.domain.crawl.config.CrawlProperties;
 import com.f5.scholarship_backend.domain.crawl.service.*;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -64,8 +66,11 @@ class CrawlJobTest {
 		} finally { stop.countDown(); job.close(); }
 	}
 
-	@Test void interruptedCallerRecordsFailureBeforeRestoringFlagAndKeepsLeaseUntilExit() throws Exception {
+	@ParameterizedTest
+	@ValueSource(booleans = {false, true})
+	void interruptedCallerRecordsFailureBeforeRestoringFlagAndKeepsLeaseUntilExit(boolean cancellationFails) throws Exception {
 		var job = job(Duration.ofSeconds(5));
+		if (cancellationFails) { doThrow(new IllegalStateException("합성 취소 실패")).when(leases).cancelWrites("owner"); }
 		var entered = new CountDownLatch(1);
 		var stop = new CountDownLatch(1);
 		var restored = new AtomicBoolean();
@@ -112,4 +117,28 @@ class CrawlJobTest {
 			verify(leases).release("owner");
 		} finally { job.close(); }
 	}
+
+	/** 취소 DB 오류가 있어도 실패 종료를 시도하고 실행 중인 작업에 인터럽트를 전달한다. */
+	@ParameterizedTest
+	@ValueSource(booleans = {false, true})
+	void cancellationFailureStillRecordsTimeoutOrWorkerFailure(boolean workerFails) throws Exception {
+		var job = job(Duration.ofMillis(300));
+		var interrupted = new CountDownLatch(1);
+		doThrow(new IllegalStateException("합성 취소 실패")).when(leases).cancelWrites("owner");
+		doAnswer(invocation -> {
+			if (workerFails) { throw new IllegalStateException("합성 작업 실패"); }
+			try { new CountDownLatch(1).await(); }
+			catch (InterruptedException expected) { interrupted.countDown(); }
+			return null;
+		}).when(worker).execute(anyLong(), anyString(), anyString());
+		try {
+			assertThat(job.runOnce()).isEqualTo(1L);
+			verify(leases).cancelWrites("owner");
+			verify(journal).failIfRunning(1L, "owner");
+			if (!workerFails) { assertThat(interrupted.await(2, TimeUnit.SECONDS)).isTrue(); }
+			assertThat(released.await(2, TimeUnit.SECONDS)).isTrue();
+			verify(leases).release("owner");
+		} finally { job.close(); }
+	}
+
 }

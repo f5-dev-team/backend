@@ -36,9 +36,9 @@ public class CrawlJob {
 		try { owner = leases.acquire(); }
 		catch (RuntimeException failure) { running.set(false); throw failure; }
 		if (owner == null) { running.set(false); return null; }
-		Execution execution = new Execution(owner);
-		active = execution;
 		String requestId = "req-" + UUID.randomUUID();
+		Execution execution = new Execution(owner, requestId);
+		active = execution;
 		Long id = null;
 		boolean restoreInterrupt = false;
 		try {
@@ -89,16 +89,21 @@ public class CrawlJob {
 	/** Future의 cancelled 상태와 실제 실행 종료를 구분하여 임대 수명을 관리한다. */
 	private final class Execution {
 		private final String owner;
+		private final String requestId;
 		private volatile FutureTask<Void> task;
 		private volatile boolean workerStarted;
 		private boolean workerFinished;
 		private boolean callerFinished;
 		private boolean released;
 
-		private Execution(String owner) { this.owner = owner; }
+		private Execution(String owner, String requestId) { this.owner = owner; this.requestId = requestId; }
 
+		/** 저장 차단 실패를 보고하고 스레드 중단과 호출자의 실패 기록을 계속 시도한다. */
 		private void cancel() {
 			try { leases.cancelWrites(owner); }
+			catch (RuntimeException failure) {
+				log.error("수집 저장 차단 실패: requestId={}, exceptionType={}", requestId, failure.getClass().getName());
+			}
 			finally {
 				FutureTask<Void> current = task;
 				if (current != null) { current.cancel(true); }
