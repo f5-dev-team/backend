@@ -59,11 +59,26 @@ public class GachonBoardParser {
 		for (Element anchor : document.select(".view-file a[href]")) {
 			URI uri = entry.url().resolve(anchor.attr("href"));
 			if (uri.getPath() != null && uri.getPath().matches("/bbs/kor/478/[0-9]+/download\\.do")) {
+				if (!sameOrigin(entry.url(), uri)) { throw new CrawlException(); }
 				attachments.add(new CrawledPost.Attachment(normalize(anchor.text()), uri));
 			}
 		}
 		return new CrawledPost(entry.postKey(), entry.url(), normalize(title.text()),
 				normalize(body.html()), entry.date(), attachments);
+	}
+
+	/** 다운로드 주소는 상세 원문과 같은 HTTP(S) 출처만 허용한다. */
+	private boolean sameOrigin(URI source, URI target) {
+		return target.getUserInfo() == null && target.getHost() != null
+				&& ("https".equalsIgnoreCase(target.getScheme()) || "http".equalsIgnoreCase(target.getScheme()))
+				&& source.getScheme().equalsIgnoreCase(target.getScheme())
+				&& source.getHost().equalsIgnoreCase(target.getHost())
+				&& effectivePort(source) == effectivePort(target);
+	}
+
+	/** 생략된 표준 포트와 명시된 표준 포트를 같은 출처로 취급한다. */
+	private int effectivePort(URI uri) {
+		return uri.getPort() >= 0 ? uri.getPort() : ("https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80);
 	}
 
 	/** 정규화는 Unicode NFC·줄바꿈·앞뒤 공백에만 적용한다. */

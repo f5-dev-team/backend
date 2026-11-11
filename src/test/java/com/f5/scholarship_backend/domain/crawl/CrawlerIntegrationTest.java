@@ -30,6 +30,7 @@ class CrawlerIntegrationTest {
 	@Autowired CrawlErrorRepository errors;
 	@Autowired LeaseManager leases;
 	@Autowired CrawlJob job;
+	@Autowired CrawlJournal journal;
 	@Autowired JdbcTemplate jdbc;
 	@Autowired org.springframework.transaction.PlatformTransactionManager manager;
 	@Autowired com.f5.scholarship_backend.domain.crawl.config.CrawlProperties properties;
@@ -185,6 +186,64 @@ class CrawlerIntegrationTest {
 		assertThat(recovered.getDiscoveredCount()).isEqualTo(3);
 		assertThat(recovered.getFailedCount()).isEqualTo(2);
 		assertThat(recovered.getFinishedAt()).isNotNull();
+	}
+	@Test void reversionClearsHeldCandidateWithoutChangingAdminVersion() {
+		owner = leases.acquire();
+		var source = post("원문", "원래 본문");
+		collector.collect(source, owner);
+		Long id = scholarships.findAll().get(0).getId();
+		jdbc.update("insert into scholarship_versions(scholarship_id,version,title,source_url,source_text,created_at,origin,changed_by_user_id) values(?,2,?,?,?,?,'ADMIN',99)",
+				id, "관리자 정정", source.sourceUrl().toString(), "관리자 본문", java.sql.Timestamp.from(Instant.now()));
+		assertThat(collector.collect(post("변경 원문", "변경 본문"), owner)).isEqualTo("HELD");
+		assertThat(collector.collect(source, owner)).isEqualTo("SKIPPED");
+		var state = states.findById(id).orElseThrow();
+		assertThat(state.isRequiresReview()).isFalse();
+		assertThat(state.getCandidateFingerprint()).isEqualTo(state.getLastSourceFingerprint());
+		assertThat(state.getCandidatePayload()).contains("원래 본문").doesNotContain("변경 본문");
+		assertThat(versions.count()).isEqualTo(2);
+		assertThat(versions.findFirstByScholarshipIdOrderByVersionDesc(id).orElseThrow().getTitle()).isEqualTo("관리자 정정");
+	}
+	@Test void rejectsErrorAfterRunFinished() {
+		owner = leases.acquire();
+		Long id = journal.start(properties.boardUrl().toString(), "req-finish", owner);
+		journal.finish(id, false, owner);
+		assertThatThrownBy(() -> journal.error(id, "CRAWL_FETCH_FAILED", null, owner))
+				.isInstanceOf(IllegalStateException.class);
+		assertThat(errors.count()).isZero();
+		assertThat(runs.findById(id).orElseThrow().getStatus()).isEqualTo("SUCCEEDED");
+		journal.failIfRunning(id, owner);
+		assertThat(runs.findById(id).orElseThrow().getStatus()).isEqualTo("SUCCEEDED");
+	}
+	@Test void cancelledWorkerCannotStoreButCallerCanFinishWithSameLease() {
+		owner = leases.acquire();
+		Long id = journal.start(properties.boardUrl().toString(), "req-cancel", owner);
+		journal.discover(id, 1, owner);
+		leases.cancelWrites(owner);
+		assertThatThrownBy(() -> collector.collect(post("취소 이후", "본문"), owner))
+				.isInstanceOf(IllegalStateException.class);
+		journal.failIfRunning(id, owner);
+		assertThat(runs.findById(id).orElseThrow().getStatus()).isEqualTo("FAILED");
+		assertThat(runs.findById(id).orElseThrow().getFailedCount()).isEqualTo(1);
+		assertThat(errors.count()).isEqualTo(1);
+		assertThat(leases.acquire()).isNull();
+	}
+	@org.junit.jupiter.params.ParameterizedTest
+	@org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+	void pinnedOnlyPagesAreComparedByAllPostKeys(boolean distinct) {
+		when(client.get(any())).thenAnswer(invocation -> {
+			URI uri = invocation.getArgument(0);
+			if (uri.getPath().endsWith("artclList.do")) {
+				boolean second = uri.getQuery().contains("page=2");
+				return "<table>" + row(second && distinct ? 1002 : 1001, "2020.01.01")
+						.replace("<tr>", "<tr class='notice'>") + "</table>"
+						+ (second ? "" : "<a href=\"javascript:page_link('2')\">2</a>");
+			}
+			return detail(uri.getPath().contains("1002") ? 1002 : 1001);
+		});
+		var run = runs.findById(job.runOnce()).orElseThrow();
+		assertThat(run.getStatus()).isEqualTo(distinct ? "SUCCEEDED" : "PARTIAL_FAILED");
+		assertThat(run.getCollectedCount()).isEqualTo(distinct ? 2 : 1);
+		if (distinct) { assertThat(errors.count()).isZero(); } else { assertThat(errors.count()).isPositive(); }
 	}
 	private CrawledPost post(String title, String body) {
 		return new CrawledPost("478:1001", URI.create("https://www.gachon.ac.kr/bbs/kor/478/1001/artclView.do"),

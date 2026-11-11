@@ -32,6 +32,22 @@ class GachonBoardParserTest {
 		assertThatThrownBy(() -> parser.parseDetail(fixture("detail"), entry("478:9999"))).isInstanceOf(CrawlException.class);
 		assertThatThrownBy(() -> parser.parseDetail("<h2 class='view-title'>제목</h2>", entry("478:1001"))).isInstanceOf(CrawlException.class);
 	}
+	@org.junit.jupiter.params.ParameterizedTest
+	@org.junit.jupiter.params.provider.ValueSource(strings = {
+			"https://example.invalid/bbs/kor/478/7001/download.do",
+			"http://www.gachon.ac.kr/bbs/kor/478/7001/download.do",
+			"https://www.gachon.ac.kr:8443/bbs/kor/478/7001/download.do",
+			"https://user@www.gachon.ac.kr/bbs/kor/478/7001/download.do",
+			"ftp://www.gachon.ac.kr/bbs/kor/478/7001/download.do"})
+	void rejectsAttachmentFromDifferentOrigin(String url) throws Exception {
+		String html = fixture("detail").replace("/bbs/kor/478/7001/download.do", url);
+		assertThatThrownBy(() -> parser.parseDetail(html, entry("478:1001"))).isInstanceOf(CrawlException.class);
+	}
+	@Test void acceptsExplicitDefaultPortOnSameOrigin() throws Exception {
+		String html = fixture("detail").replace("/bbs/kor/478/7001/download.do",
+				"https://www.gachon.ac.kr:443/bbs/kor/478/7001/download.do");
+		assertThat(parser.parseDetail(html, entry("478:1001")).attachments()).hasSize(2);
+	}
 	private BoardPage.Entry entry(String key) {
 		return new BoardPage.Entry(key, base.resolve("/bbs/kor/478/1001/artclView.do"), LocalDate.of(2026, 11, 9), false);
 	}

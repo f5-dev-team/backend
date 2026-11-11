@@ -68,8 +68,14 @@ class GachonMysqlPersistenceTest {
 			journal.discover(runId, 1, owner);
 			var post = parser.parseDetail(client.get(entry.url()), entry);
 
+			var versionsBeforeCollect = jdbc.queryForList("""
+					select v.version, v.title, v.source_text, v.origin from scholarship_versions v
+					join scholarships s on s.scholarship_id=v.scholarship_id
+					where s.source_site='GACHON_KOR' and s.source_post_key=? and s.source_item_key='main'
+					order by v.version
+					""", post.postKey());
 			String first = collector.collect(post, owner);
-			assertThat(first).isIn("COLLECTED", "SKIPPED");
+			assertThat(first).isIn("COLLECTED", "SKIPPED", "HELD");
 			Long id = jdbc.queryForObject("""
 					select scholarship_id from scholarships
 					where source_site='GACHON_KOR' and source_post_key=? and source_item_key='main'
@@ -77,24 +83,38 @@ class GachonMysqlPersistenceTest {
 			Long versionsBefore = jdbc.queryForObject(
 					"select count(*) from scholarship_versions where scholarship_id=?", Long.class, id);
 
-			assertThat(collector.collect(post, owner)).isEqualTo("SKIPPED");
+			assertThat(collector.collect(post, owner)).isEqualTo(first.equals("HELD") ? "HELD" : "SKIPPED");
 			assertThat(jdbc.queryForObject("""
 					select count(*) from scholarships
 					where source_site='GACHON_KOR' and source_post_key=? and source_item_key='main'
 					""", Long.class, post.postKey())).isEqualTo(1L);
 			assertThat(jdbc.queryForObject("select count(*) from scholarship_versions where scholarship_id=?",
 					Long.class, id)).isEqualTo(versionsBefore);
-			String storedBody = jdbc.queryForObject("""
-					select source_text from scholarship_versions
-					where scholarship_id=? order by version desc limit 1
-					""", String.class, id);
-			assertThat(storedBody).isEqualTo(post.bodyHtml());
+			if (first.equals("HELD")) {
+				assertThat(jdbc.queryForList("""
+						select version, title, source_text, origin from scholarship_versions
+						where scholarship_id=? order by version
+						""", id)).isEqualTo(versionsBeforeCollect);
+				assertThat(jdbc.queryForObject(
+						"select requires_review from scholarship_crawl_state where scholarship_id=?",
+						Boolean.class, id)).isTrue();
+				log.info("MySQL 관리자 정정 보존·원문 보류 확인: scholarshipId={}", id);
+			} else {
+				// 최신 ADMIN/AI 버전이 아니라 마지막으로 반영한 CRAWLER 버전을 비교한다.
+				String storedBody = jdbc.queryForObject("""
+						select v.source_text from scholarship_versions v
+						join scholarship_crawl_state c on c.scholarship_id=v.scholarship_id
+						  and c.last_imported_version=v.version
+						where v.scholarship_id=?
+						""", String.class, id);
+				assertThat(storedBody).isEqualTo(post.bodyHtml());
+			}
 
 			journal.outcome(runId, first, owner);
 			journal.finish(runId, false, owner);
 			completed = true;
-			log.info("MySQL 한 건 검증 성공: runId={}, scholarshipId={}, postKey={}, versionCount={}, duplicate=SKIPPED",
-					runId, id, post.postKey(), versionsBefore);
+			log.info("MySQL 한 건 검증 성공: runId={}, scholarshipId={}, postKey={}, versionCount={}, firstOutcome={}",
+					runId, id, post.postKey(), versionsBefore, first);
 		} finally {
 			try {
 				if (runId != null && !completed) {

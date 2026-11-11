@@ -18,6 +18,7 @@ public class LeaseManager {
 	private final CrawlProperties properties;
 	private final TransactionTemplate transaction;
 	private volatile String activeOwner;
+	private volatile String cancelledOwner;
 
 	public LeaseManager(JdbcTemplate jdbc, CrawlProperties properties, PlatformTransactionManager manager) {
 		this.jdbc = jdbc; this.properties = properties;
@@ -41,7 +42,7 @@ public class LeaseManager {
 				return true;
 			} catch (DuplicateKeyException occupied) { return false; }
 		});
-		if (Boolean.TRUE.equals(acquired)) { activeOwner = owner; return owner; }
+		if (Boolean.TRUE.equals(acquired)) { cancelledOwner = null; activeOwner = owner; return owner; }
 		return null;
 	}
 
@@ -51,6 +52,19 @@ public class LeaseManager {
 				(rs, row) -> rs.getString(1));
 		if (Thread.currentThread().isInterrupted() || owners.isEmpty() || !owner.equals(owners.get(0))) {
 			throw new IllegalStateException("수집 실행 임대가 유효하지 않습니다.");
+		}
+	}
+
+	/** 취소된 작업의 신규 저장을 차단하되 실제 종료까지 임대는 유지한다. */
+	public void cancelWrites(String owner) {
+		cancelledOwner = owner;
+	}
+
+	/** 임대 행 잠금과 취소 여부를 같은 저장 트랜잭션에서 확인한다. */
+	public void assertWorkAllowed(String owner) {
+		assertHeld(owner);
+		if (owner.equals(cancelledOwner)) {
+			throw new IllegalStateException("취소된 수집 작업은 저장할 수 없습니다.");
 		}
 	}
 

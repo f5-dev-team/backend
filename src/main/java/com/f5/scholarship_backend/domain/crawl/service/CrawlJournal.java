@@ -49,7 +49,20 @@ public class CrawlJournal {
 	@Transactional(timeout = 10)
 	public void error(Long id, String code, String url, String owner) {
 		leases.assertHeld(owner);
+		var run = runs.findById(id).orElseThrow();
+		if (!run.getStatus().equals("RUNNING")) { throw new IllegalStateException("수집 실행이 종료되었습니다."); }
 		errors.save(new CrawlError(id, code, url, clock.instant()));
+	}
+
+	/** 실패 기록과 종료를 원자적으로 처리하고 이미 완료한 실행은 유지한다. */
+	@Transactional(timeout = 10)
+	public void failIfRunning(Long id, String owner) {
+		leases.assertHeld(owner);
+		var run = runs.findById(id).orElseThrow();
+		if (run.getStatus().equals("RUNNING")) {
+			errors.save(new CrawlError(id, "CRAWL_FETCH_FAILED", null, clock.instant()));
+			finish(id, true, owner);
+		}
 	}
 
 	/** 종료 집계와 상태를 저장한다. 이미 종료된 실행은 변경하지 않는다. */

@@ -32,7 +32,7 @@ public class ScholarshipCollector {
 	/** 원문 지문과 외부 정정 여부를 확인하고 식별 행·버전·후보를 함께 저장한다. */
 	@Transactional(timeout = 10)
 	public String collect(CrawledPost post, String owner) {
-		leases.assertHeld(owner);
+		leases.assertWorkAllowed(owner);
 		String payload = json.writeValueAsString(post);
 		// 링크 집합의 순서 변화로 새 버전을 만들지 않는다. S3 파일 바이트 지문은 다음 이슈에서 추가한다.
 		String fingerprint = fingerprint(post);
@@ -40,7 +40,11 @@ public class ScholarshipCollector {
 		boolean fresh = scholarship == null;
 		if (fresh) { scholarship = scholarships.saveAndFlush(new Scholarship(post.postKey(), clock.instant())); }
 		var state = states.findById(scholarship.getId()).orElse(new CrawlState(scholarship.getId()));
-		if (fingerprint.equals(state.getLastSourceFingerprint())) { return "SKIPPED"; }
+		if (fingerprint.equals(state.getLastSourceFingerprint())) {
+			state.observe(fingerprint, payload, false, clock.instant());
+			states.save(state);
+			return "SKIPPED";
+		}
 		var latest = versions.findFirstByScholarshipIdOrderByVersionDesc(scholarship.getId()).orElse(null);
 		boolean protectedVersion = !fresh && (state.getLastSourceFingerprint() == null
 				|| versions.countProtectedSince(scholarship.getId(), state.getLastImportedVersion()) > 0);

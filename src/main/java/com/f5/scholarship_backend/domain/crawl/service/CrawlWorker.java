@@ -44,7 +44,7 @@ public class CrawlWorker {
 				URI uri = UriComponentsBuilder.fromUri(properties.boardUrl())
 						.replaceQueryParam("page", page).build().toUri();
 				var listing = parser.parseList(client.get(uri), uri, page);
-				String signature = listing.entries().stream().filter(e -> !e.pinned()).map(BoardPage.Entry::postKey)
+				String signature = listing.entries().stream().map(BoardPage.Entry::postKey).distinct().sorted()
 						.reduce("", (a, b) -> a + "," + b);
 				if (!pageSignatures.add(signature)) { throw new CrawlException(); }
 				boolean allOld = true;
