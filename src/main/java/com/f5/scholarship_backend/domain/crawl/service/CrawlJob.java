@@ -98,9 +98,11 @@ public class CrawlJob {
 		private Execution(String owner) { this.owner = owner; }
 
 		private void cancel() {
-			leases.cancelWrites(owner);
-			FutureTask<Void> current = task;
-			if (current != null) { current.cancel(true); }
+			try { leases.cancelWrites(owner); }
+			finally {
+				FutureTask<Void> current = task;
+				if (current != null) { current.cancel(true); }
+			}
 		}
 
 		private synchronized void workerDone() {

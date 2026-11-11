@@ -11,4 +11,5 @@ public class CrawlerLease {
 	@Id @Column(length = 64) private String name;
 	@Column(length = 64) private String owner;
 	@Column(name = "locked_until", nullable = false) private Instant lockedUntil;
+	@Column(nullable = false) private boolean cancelled;
 }

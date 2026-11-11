@@ -33,11 +33,11 @@ public class LeaseManager {
 		String owner = UUID.randomUUID().toString();
 		Boolean acquired = transaction.execute(status -> {
 			Instant now = databaseNow();
-			int updated = jdbc.update("update crawler_leases set owner=?, locked_until=? where name='gachon-scholarships' and (owner is null or locked_until<=?)",
+			int updated = jdbc.update("update crawler_leases set owner=?, locked_until=?, cancelled=false where name='gachon-scholarships' and (owner is null or locked_until<=?)",
 					owner, Timestamp.from(now.plus(properties.leaseDuration())), Timestamp.from(now));
 			if (updated == 1) { return true; }
 			try {
-				jdbc.update("insert into crawler_leases(name,owner,locked_until) values('gachon-scholarships',?,?)",
+				jdbc.update("insert into crawler_leases(name,owner,locked_until,cancelled) values('gachon-scholarships',?,?,false)",
 						owner, Timestamp.from(now.plus(properties.leaseDuration())));
 				return true;
 			} catch (DuplicateKeyException occupied) { return false; }
@@ -55,15 +55,25 @@ public class LeaseManager {
 		}
 	}
 
-	/** 취소된 작업의 신규 저장을 차단하되 실제 종료까지 임대는 유지한다. */
+	/**
+	 * 저장 트랜잭션과 같은 임대 행을 잠가 취소 완료와 커밋의 순서를 정한다.
+	 * 이미 행을 잠근 저장은 먼저 완료될 수 있으며, 반환 후에는 신규 저장을 허용하지 않는다.
+	 */
 	public void cancelWrites(String owner) {
 		cancelledOwner = owner;
+		transaction.executeWithoutResult(status -> jdbc.update(
+				"update crawler_leases set cancelled=true where name='gachon-scholarships' and owner=?", owner));
 	}
 
-	/** 임대 행 잠금과 취소 여부를 같은 저장 트랜잭션에서 확인한다. */
+	/** 임대 행 잠금을 커밋까지 유지하고 DB의 취소 상태도 확인한다. */
 	public void assertWorkAllowed(String owner) {
+		if (!org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) {
+			throw new IllegalStateException("저장 허가는 트랜잭션 안에서 확인해야 합니다.");
+		}
 		assertHeld(owner);
-		if (owner.equals(cancelledOwner)) {
+		Boolean cancelled = jdbc.queryForObject(
+				"select cancelled from crawler_leases where name='gachon-scholarships' and owner=?", Boolean.class, owner);
+		if (owner.equals(cancelledOwner) || Boolean.TRUE.equals(cancelled)) {
 			throw new IllegalStateException("취소된 수집 작업은 저장할 수 없습니다.");
 		}
 	}
