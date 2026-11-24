@@ -24,6 +24,10 @@ dependencies {
 	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.2.0'
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
 	implementation 'org.jsoup:jsoup:1.24.1'
+	implementation platform('software.amazon.awssdk:bom:2.57.13')
+	implementation 'software.amazon.awssdk:s3'
+	implementation 'software.amazon.awssdk:url-connection-client'
+	implementation 'org.apache.poi:poi:6.0.0'
 	compileOnly 'org.projectlombok:lombok'
 	runtimeOnly 'com.mysql:mysql-connector-j'
 	annotationProcessor 'org.projectlombok:lombok'

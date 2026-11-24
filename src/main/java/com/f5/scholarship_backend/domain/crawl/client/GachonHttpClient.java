@@ -19,10 +19,14 @@ import org.springframework.stereotype.Component;
 public class GachonHttpClient implements BoardClient {
 	private final CrawlProperties properties;
 	private final HttpClient client;
-	private long lastStart;
+	private final CrawlRequestThrottle throttle;
 
-	public GachonHttpClient(CrawlProperties properties) {
-		this.properties = properties;
+	public GachonHttpClient(CrawlProperties properties) { this(properties, new CrawlRequestThrottle(properties)); }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public GachonHttpClient(CrawlProperties properties, CrawlRequestThrottle throttle) {
+        this.throttle = throttle;
+        this.properties = properties;
 		this.client = HttpClient.newBuilder().connectTimeout(properties.connectTimeout())
 				.followRedirects(HttpClient.Redirect.NEVER).build();
 	}
@@ -34,9 +38,7 @@ public class GachonHttpClient implements BoardClient {
 		int redirects = 0;
 		for (int attempt = 0; attempt < 3; attempt++) {
 			try {
-				long wait = properties.interval().toNanos() - (System.nanoTime() - lastStart);
-				if (lastStart != 0 && wait > 0) { sleep(Duration.ofNanos(wait)); }
-				lastStart = System.nanoTime();
+				throttle.await();
 				var request = HttpRequest.newBuilder(uri).timeout(properties.requestTimeout())
 						.header("User-Agent", "F5-ScholarshipCrawler/1.0")
 						.header("Accept", "text/html").GET().build();
@@ -102,19 +104,21 @@ public class GachonHttpClient implements BoardClient {
 	}
 
 	/** 수신 중 크기를 검사하여 과도한 HTML 응답의 메모리 적재를 중단한다. */
-	private static final class LimitedBody implements HttpResponse.BodySubscriber<byte[]> {
+	static final class LimitedBody implements HttpResponse.BodySubscriber<byte[]> {
 		private final HttpResponse.BodySubscriber<byte[]> delegate = HttpResponse.BodySubscribers.ofByteArray();
 		private final int limit;
+        private final java.util.function.Supplier<? extends Throwable> tooLarge;
 		private int received;
 		private Flow.Subscription subscription;
-		LimitedBody(int limit) { this.limit = limit; }
+		LimitedBody(int limit) { this(limit, () -> new java.io.IOException("HTML 응답 크기 제한 초과")); }
+        LimitedBody(int limit, java.util.function.Supplier<? extends Throwable> tooLarge) { this.limit = limit; this.tooLarge = tooLarge; }
 		@Override public CompletionStage<byte[]> getBody() { return delegate.getBody(); }
 		@Override public void onSubscribe(Flow.Subscription value) { subscription = value; delegate.onSubscribe(value); }
 		@Override public void onNext(List<ByteBuffer> buffers) {
 			for (ByteBuffer buffer : buffers) {
 				if (buffer.remaining() > limit - received) {
 					subscription.cancel();
-					delegate.onError(new java.io.IOException("HTML 응답 크기 제한 초과"));
+					delegate.onError(tooLarge.get());
 					return;
 				}
 				received += buffer.remaining();

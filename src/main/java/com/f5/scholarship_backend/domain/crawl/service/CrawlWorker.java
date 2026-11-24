@@ -1,6 +1,8 @@
 package com.f5.scholarship_backend.domain.crawl.service;
 
 import java.net.URI;
+import com.f5.scholarship_backend.domain.document.client.DocumentException;
+import com.f5.scholarship_backend.domain.document.service.AttachmentPipeline;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -23,11 +25,12 @@ public class CrawlWorker {
 	private final CrawlJournal journal;
 	private final CrawlProperties properties;
 	private final Clock clock;
+	private final AttachmentPipeline files;
 
 	public CrawlWorker(BoardClient client, GachonBoardParser parser, ScholarshipCollector collector,
-			CrawlJournal journal, CrawlProperties properties, Clock clock) {
+			CrawlJournal journal, CrawlProperties properties, Clock clock, AttachmentPipeline files) {
 		this.client = client; this.parser = parser; this.collector = collector;
-		this.journal = journal; this.properties = properties; this.clock = clock;
+		this.journal = journal; this.properties = properties; this.clock = clock; this.files = files;
 	}
 
 	/** 최근 범위와 고정 공지를 수집하며 중복·부분 실패·순회 한도를 명시적으로 집계한다. */
@@ -74,14 +77,33 @@ public class CrawlWorker {
 			try {
 				var post = parser.parseDetail(client.get(entry.url()), entry);
 				try {
-					String outcome = collector.collect(post, owner);
+					AttachmentPipeline.Prepared prepared;
+					try {
+						prepared = files.prepare(post);
+					} catch (DocumentException failure) {
+						if (failure.isLimitExceeded()) {
+							collector.preserveNewSource(post, owner);
+						}
+						// 원문을 보존했어도 첨부 수집은 실패했으므로 실행 이력에 실패를 남긴다.
+						throw failure;
+					}
+					if (prepared.storageFailed()) {
+						checkInterrupted();
+						collector.preserveNewSource(post, owner);
+						throw DocumentException.storage();
+					}
+					String outcome = collector.collect(post, prepared.files(), owner);
 					if (outcome.equals("HELD")) {
 						log.warn("수집 후보 보류: requestId={}, postKey={}", requestId, entry.postKey());
 					}
-					journal.outcome(runId, outcome, owner);
+					if (prepared.unsupported()) {
+                        journal.error(runId, "DOCUMENT_FETCH_FAILED", entry.url().toString(), owner);
+                        journal.outcome(runId, "FAILED", owner);
+                    } else { journal.outcome(runId, outcome, owner); }
 				} catch (RuntimeException storageFailure) {
 					checkInterrupted();
-					journal.error(runId, "STORAGE_FAILED", entry.url().toString(), owner);
+					String code = storageFailure instanceof DocumentException documentFailure ? documentFailure.code() : "STORAGE_FAILED";
+					journal.error(runId, code, entry.url().toString(), owner);
 					journal.outcome(runId, "FAILED", owner);
 				}
 			} catch (RuntimeException fetchFailure) {
