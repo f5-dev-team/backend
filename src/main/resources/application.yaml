@@ -22,3 +22,13 @@ crawler:
   max-html-bytes: 5242880
   run-timeout: 45m
   lease-duration: 60m
+# 실제 S3 정보가 없으면 비활성화하며 파일 업로드 성공으로 가장하지 않는다.
+document-storage:
+  enabled: ${DOCUMENT_STORAGE_ENABLED:false}
+  bucket: ${AWS_S3_BUCKET:}
+  region: ${AWS_REGION:}
+  prefix: scholarship-originals
+  max-file-bytes: 20971520
+  max-files: 10
+  max-post-bytes: 104857600
+  download-timeout: 60s

@@ -19,6 +19,8 @@ public class LeaseManager {
 	private final TransactionTemplate transaction;
 	private volatile String activeOwner;
 	private volatile String cancelledOwner;
+	// 갱신 중 DB 오류가 나면 기존 만료 시각이 남을 수 있어, 실패한 실행을 별도로 기억한다.
+	private volatile String failedRenewalOwner;
 
 	public LeaseManager(JdbcTemplate jdbc, CrawlProperties properties, PlatformTransactionManager manager) {
 		this.jdbc = jdbc; this.properties = properties;
@@ -42,7 +44,12 @@ public class LeaseManager {
 				return true;
 			} catch (DuplicateKeyException occupied) { return false; }
 		});
-		if (Boolean.TRUE.equals(acquired)) { cancelledOwner = null; activeOwner = owner; return owner; }
+		if (Boolean.TRUE.equals(acquired)) {
+			cancelledOwner = null;
+			failedRenewalOwner = null;
+			activeOwner = owner;
+			return owner;
+		}
 		return null;
 	}
 
@@ -65,7 +72,7 @@ public class LeaseManager {
 				"update crawler_leases set cancelled=true where name='gachon-scholarships' and owner=?", owner));
 	}
 
-	/** 임대 행 잠금을 커밋까지 유지하고 DB의 취소 상태도 확인한다. */
+	/** 임대 행 잠금을 커밋까지 유지하고 취소 또는 갱신 실패가 확인된 실행의 새 저장을 막는다. */
 	public void assertWorkAllowed(String owner) {
 		if (!org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) {
 			throw new IllegalStateException("저장 허가는 트랜잭션 안에서 확인해야 합니다.");
@@ -76,11 +83,14 @@ public class LeaseManager {
 		if (owner.equals(cancelledOwner) || Boolean.TRUE.equals(cancelled)) {
 			throw new IllegalStateException("취소된 수집 작업은 저장할 수 없습니다.");
 		}
+		if (owner.equals(failedRenewalOwner)) {
+			throw new IllegalStateException("현재 프로세스의 수집 실행권이 유효하지 않습니다.");
+		}
 	}
 
-	/** 실행 스레드와 별도로 1분마다 임대를 갱신하며 갱신 실패 시 실행권을 잃는다. */
+	/** 1분마다 임대를 갱신한다. 획득·반환과 직렬화하여 이전 실행의 갱신 결과가 새 실행권에 영향을 주지 않도록 한다. */
 	@Scheduled(fixedDelay = 60000)
-	public void heartbeat() {
+	public synchronized void heartbeat() {
 		String owner = activeOwner;
 		if (owner == null) { return; }
 		try {
@@ -88,9 +98,15 @@ public class LeaseManager {
 				Instant now = databaseNow();
 				int changed = jdbc.update("update crawler_leases set locked_until=? where name='gachon-scholarships' and owner=? and locked_until>?",
 						Timestamp.from(now.plus(properties.leaseDuration())), owner, Timestamp.from(now));
-				if (changed == 0) { activeOwner = null; }
+				if (changed == 0) {
+					failedRenewalOwner = owner;
+					activeOwner = null;
+				}
 			});
-		} catch (RuntimeException failure) { activeOwner = null; }
+		} catch (RuntimeException failure) {
+			failedRenewalOwner = owner;
+			activeOwner = null;
+		}
 	}
 
 	/** 자신의 임대만 해제하며 다른 서버의 새 임대를 삭제하지 않는다. */

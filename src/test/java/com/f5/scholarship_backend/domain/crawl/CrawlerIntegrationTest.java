@@ -245,6 +245,36 @@ class CrawlerIntegrationTest {
 		assertThat(run.getCollectedCount()).isEqualTo(distinct ? 2 : 1);
 		if (distinct) { assertThat(errors.count()).isZero(); } else { assertThat(errors.count()).isPositive(); }
 	}
+
+	@Test void failedRenewalBlocksWritesEvenWhileDatabaseLeaseHasNotExpired() {
+		var renewalJdbc = new JdbcTemplate(java.util.Objects.requireNonNull(jdbc.getDataSource())) {
+			@Override
+			public int update(String sql, Object... args) {
+				if (sql.startsWith("update crawler_leases set locked_until=")) {
+					throw new org.springframework.dao.DataAccessResourceFailureException("합성 갱신 오류");
+				}
+				return super.update(sql, args);
+			}
+		};
+		var lease = new LeaseManager(renewalJdbc, properties, manager);
+		String acquired = lease.acquire();
+		assertThat(acquired).isNotNull();
+		var transaction = new org.springframework.transaction.support.TransactionTemplate(manager);
+
+		try {
+			transaction.executeWithoutResult(status -> lease.assertWorkAllowed(acquired));
+			lease.heartbeat();
+
+			assertThat(jdbc.queryForObject("select count(*) from crawler_leases where owner=? and locked_until>CURRENT_TIMESTAMP",
+					Long.class, acquired)).isEqualTo(1L);
+			assertThatThrownBy(() -> transaction.executeWithoutResult(status -> lease.assertWorkAllowed(acquired)))
+					.isInstanceOf(IllegalStateException.class)
+					.hasMessage("현재 프로세스의 수집 실행권이 유효하지 않습니다.");
+		} finally {
+			lease.release(acquired);
+		}
+	}
+
 	private CrawledPost post(String title, String body) {
 		return new CrawledPost("478:1001", URI.create("https://www.gachon.ac.kr/bbs/kor/478/1001/artclView.do"),
 				title, body, LocalDate.now(), List.of());
