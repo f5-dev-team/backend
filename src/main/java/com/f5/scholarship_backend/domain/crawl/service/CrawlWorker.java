@@ -87,6 +87,11 @@ public class CrawlWorker {
 						// 원문을 보존했어도 첨부 수집은 실패했으므로 실행 이력에 실패를 남긴다.
 						throw failure;
 					}
+					if (prepared.storageFailed()) {
+						checkInterrupted();
+						collector.preserveNewSource(post, owner);
+						throw DocumentException.storage();
+					}
 					String outcome = collector.collect(post, prepared.files(), owner);
 					if (outcome.equals("HELD")) {
 						log.warn("수집 후보 보류: requestId={}, postKey={}", requestId, entry.postKey());

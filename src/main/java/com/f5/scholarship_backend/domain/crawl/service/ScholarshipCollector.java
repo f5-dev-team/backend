@@ -95,7 +95,7 @@ public class ScholarshipCollector {
 			var attachments = post.attachments().stream()
 					.sorted(Comparator.comparing((CrawledPost.Attachment a) -> a.url().toString()).thenComparing(CrawledPost.Attachment::name))
 					.distinct().toList();
-			var content = files.stream().map(f -> java.util.List.of(f.name(), f.type().name(), f.sha256()))
+			var content = files.stream().map(f -> java.util.List.of(f.name(), f.sourceUrl().toString(), f.type().name(), f.sha256()))
                     .distinct().sorted(Comparator.comparing(Object::toString)).toList();
             String canonical = json.writeValueAsString(files.isEmpty()
                     ? java.util.List.of(post.title(), post.bodyHtml(), attachments)

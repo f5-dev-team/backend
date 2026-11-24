@@ -18,7 +18,7 @@ public class AttachmentPipeline {
     public AttachmentPipeline(AttachmentDownloader downloader, FileValidator validator, OriginalFileStorage storage, FileProperties properties) {
         this.downloader = downloader; this.validator = validator; this.storage = storage; this.properties = properties;
     }
-    /** 네트워크 처리는 DB 트랜잭션 밖에서 수행하고 성공한 불변 객체만 반환한다. */
+    /** 네트워크 처리는 DB 트랜잭션 밖에서 수행하며 업로드 실패 시 불완전한 파일 목록을 폐기한다. */
     public Prepared prepare(CrawledPost post) {
         if (!post.postKey().matches("478:[0-9]+")) { throw DocumentException.download(); }
         var originals = post.attachments().stream().distinct().toList();
@@ -38,13 +38,19 @@ public class AttachmentPipeline {
             if (total > properties.maxPostBytes()) { throw DocumentException.limitExceeded(); }
             String key = properties.prefix().replaceAll("/+$", "") + "/GACHON_KOR/478/"
                     + post.postKey().substring(4) + "/" + hash + "." + type.get().name().toLowerCase(Locale.ROOT);
-            var location = storage.store(key, bytes, hash, type.get());
+            OriginalFileStorage.Location location;
+            try {
+                location = storage.store(key, bytes, hash, type.get());
+            } catch (RuntimeException failure) {
+                if (Thread.currentThread().isInterrupted()) { throw failure; }
+                return new Prepared(List.of(), unsupported, true);
+            }
             stored.add(new StoredAttachment(attachment.name(), attachment.url(), type.get(), hash, bytes.length,
                     location.bucket(), location.key(), location.versionId()));
         }
-        return new Prepared(stored, unsupported);
+        return new Prepared(stored, unsupported, false);
     }
-    public record Prepared(List<StoredAttachment> files, boolean unsupported) {
+    public record Prepared(List<StoredAttachment> files, boolean unsupported, boolean storageFailed) {
         public Prepared { files = List.copyOf(files); }
     }
 }

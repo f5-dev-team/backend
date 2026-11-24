@@ -80,6 +80,22 @@ class FilePipelineIntegrationTest {
         assertThat(links.count()).isEqualTo(2);
         assertThat(documents.findAll().get(0).getFileName()).isEqualTo("a.pdf");
     }
+    @Test void swappingDifferentFileContentsBetweenSameNameUrlsCreatesVersion() {
+        var first = file("same.pdf", 1);
+        var second = file("same.pdf", 2);
+        var post = post("제목", List.of(first, second));
+        when(downloader.download(first)).thenReturn(pdf("첫 번째"));
+        when(downloader.download(second)).thenReturn(pdf("두 번째"));
+        assertThat(collect(post)).isEqualTo("COLLECTED");
+
+        when(downloader.download(first)).thenReturn(pdf("두 번째"));
+        when(downloader.download(second)).thenReturn(pdf("첫 번째"));
+
+        assertThat(collect(post)).isEqualTo("COLLECTED");
+        assertThat(collect(post("제목", List.of(second, first)))).isEqualTo("SKIPPED");
+        assertThat(versions.count()).isEqualTo(2);
+    }
+
     @Test void uploadedObjectIsReusedAfterDatabaseRollback() {
         assertThatThrownBy(() -> collect(post("x".repeat(256), List.of(file("a.pdf", 1))))).isInstanceOf(RuntimeException.class);
         assertThat(scholarships.count()).isZero(); assertThat(documents.count()).isZero(); assertThat(links.count()).isZero();
@@ -87,11 +103,41 @@ class FilePipelineIntegrationTest {
         assertThat(collect(post("정상 제목", List.of(file("a.pdf", 1))))).isEqualTo("COLLECTED");
         assertThat(objects).hasSize(1); assertThat(documents.count()).isEqualTo(1); assertThat(links.count()).isEqualTo(1);
     }
-    @Test void storageFailurePreservesExistingVersionAndConnections() {
-        var post = post("제목", List.of(file("a.pdf", 1))); collect(post);
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void storageFailurePreservesNewSourceAndKeepsExistingVersion(boolean alreadyImported) {
+        if (alreadyImported) {
+            collect(post("기존 제목", List.of(file("a.pdf", 1))));
+        }
         when(storage.store(anyString(), any(), anyString(), any())).thenThrow(DocumentException.storage());
-        assertThatThrownBy(() -> collect(post)).isInstanceOf(DocumentException.class);
-        assertThat(versions.count()).isEqualTo(1); assertThat(links.count()).isEqualTo(1);
+        leases.release(owner);
+        owner = null;
+        String today = LocalDate.now(java.time.ZoneId.of("Asia/Seoul")).toString().replace('-', '.');
+        when(board.get(any())).thenAnswer(invocation -> {
+            URI uri = invocation.getArgument(0);
+            if (uri.getPath().endsWith("artclList.do")) {
+                return "<table><tr><td class='td-subject'><a href='/bbs/kor/478/1001/artclView.do'>공고</a>"
+                        + "</td><td class='td-date'>" + today + "</td></tr></table>";
+            }
+            return "<dl class='view-num'><dd>1001</dd></dl><h2 class='view-title'>새 제목</h2>"
+                    + "<div class='view-con'>새 본문</div>"
+                    + "<div class='view-file'><a href='/bbs/kor/478/2/download.do'>b.pdf</a></div>";
+        });
+
+        Long runId = job.runOnce();
+
+        assertThat(runs.findById(runId).orElseThrow().getStatus()).isEqualTo("FAILED");
+        assertThat(errors.findAll()).extracting(e -> e.getCode()).containsExactly("STORAGE_FAILED");
+        assertThat(scholarships.findAll()).singleElement()
+                .satisfies(s -> assertThat(s.getProcessingStatus()).isEqualTo("PENDING"));
+        assertThat(versions.findAll()).singleElement().satisfies(version -> {
+            assertThat(version.getTitle()).isEqualTo(alreadyImported ? "기존 제목" : "새 제목");
+            assertThat(version.getSourceText()).contains(alreadyImported ? "<p>본문</p>" : "새 본문");
+            assertThat(version.getSourceAttachments()).contains(alreadyImported ? "a.pdf" : "b.pdf",
+                    alreadyImported ? "/1/download.do" : "/2/download.do");
+        });
+        assertThat(documents.count()).isEqualTo(alreadyImported ? 1 : 0);
+        assertThat(links.count()).isEqualTo(alreadyImported ? 1 : 0);
     }
     @Test void cancellationAfterUploadBlocksDatabaseCommit() {
         var prepared = pipeline.prepare(post("제목", List.of(file("a.pdf", 1))));
