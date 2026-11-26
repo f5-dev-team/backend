@@ -8,5 +8,9 @@ spring:
     hibernate:
       ddl-auto: create-drop
 
+jwt:
+  secret: ${JWT_SECRET:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}
+  access-token-expiration-seconds: ${JWT_ACCESS_TOKEN_EXPIRATION_SECONDS:3600}
+
 crawler:
   enabled: false

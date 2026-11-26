@@ -15,6 +15,7 @@ import com.f5.scholarship_backend.domain.student.enums.EnrollmentStatus;
 import com.f5.scholarship_backend.domain.student.service.StudentProfileSaveResult;
 import com.f5.scholarship_backend.domain.student.service.StudentProfileService;
 import com.f5.scholarship_backend.global.config.JsonConfig;
+import com.f5.scholarship_backend.global.config.RequestIdFilter;
 import com.f5.scholarship_backend.global.exception.BusinessException;
 import com.f5.scholarship_backend.global.exception.ErrorCode;
 import org.junit.jupiter.api.Test;
@@ -24,11 +25,16 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.MockMvcBuilderCustomizer;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.context.ActiveProfiles;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
@@ -43,8 +49,18 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest({StudentProfileController.class, AnalysisController.class})
-@Import(JsonConfig.class)
+@AutoConfigureMockMvc(addFilters = false)
+@Import({JsonConfig.class, CoreApiControllerTest.TestMockMvcConfiguration.class})
+@ActiveProfiles("test")
 class CoreApiControllerTest {
+	@TestConfiguration(proxyBeanMethods = false)
+	static class TestMockMvcConfiguration {
+		@Bean
+		MockMvcBuilderCustomizer requestIdFilterForControllerTest() {
+			return builder -> builder.addFilters(new RequestIdFilter());
+		}
+	}
+
 	private static final String PROFILE_URL = "/api/v1/users/me/student-profile";
 	private static final String ANALYSIS_URL = "/api/v1/analyses";
 	private static final String PROFILE = """

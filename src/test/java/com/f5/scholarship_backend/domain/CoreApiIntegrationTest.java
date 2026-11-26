@@ -1,5 +1,7 @@
 package com.f5.scholarship_backend.domain;
 
+import com.f5.scholarship_backend.domain.user.enums.UserRole;
+import com.f5.scholarship_backend.global.security.JwtTokenProvider;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -17,10 +19,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class CoreApiIntegrationTest {
 	@Autowired
 	private MockMvc mockMvc;
+	@Autowired
+	private JwtTokenProvider jwtTokenProvider;
 
 	@Test
 	void unimplementedServicesNeverReportSuccessfulPersistenceOrAcceptance() throws Exception {
-		mockMvc.perform(put("/api/v1/users/me/student-profile").principal(() -> "101")
+		mockMvc.perform(put("/api/v1/users/me/student-profile").header("Authorization", userToken())
 						.contentType(MediaType.APPLICATION_JSON).content("""
 								{"department":null,"grade":null,"enrollmentStatus":null,
 								"cumulativeGpa":null,"previousSemesterGpa":null,"incomeBracket":null,
@@ -29,11 +33,15 @@ class CoreApiIntegrationTest {
 				.andExpect(status().isServiceUnavailable())
 				.andExpect(jsonPath("$.code").value("SERVICE_UNAVAILABLE"))
 				.andExpect(jsonPath("$.data").doesNotExist());
-		mockMvc.perform(post("/api/v1/analyses").principal(() -> "101")
+		mockMvc.perform(post("/api/v1/analyses").header("Authorization", userToken())
 						.contentType(MediaType.APPLICATION_JSON).content("{\"profileVersion\":1}"))
 				.andExpect(status().isServiceUnavailable())
 				.andExpect(jsonPath("$.code").value("SERVICE_UNAVAILABLE"))
 				.andExpect(header().doesNotExist("Location"));
+	}
+
+	private String userToken() {
+		return "Bearer " + jwtTokenProvider.createAccessToken("101", UserRole.USER);
 	}
 
 	@Test
