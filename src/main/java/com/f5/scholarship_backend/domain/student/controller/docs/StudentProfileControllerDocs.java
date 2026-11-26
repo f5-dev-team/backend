@@ -16,8 +16,8 @@ import org.springframework.http.ResponseEntity;
 public interface StudentProfileControllerDocs {
 	/** 학생 정보 전체 저장 API의 요청·응답 및 인증 요구를 문서화한다. */
 	@Operation(operationId = "saveStudentProfile", summary = "학생 정보 저장·전체 교체",
-			description = "10개 필드를 모두 전달하며 미확인 값은 null입니다. 최초 저장은 201, 기존 정보 교체는 200입니다. "
-					+ "동일 값 재저장 시 버전과 갱신 시각을 유지해야 합니다. 현재 DB 및 인증 연동 전 뼈대 단계입니다.")
+			description = "최상위 키를 모두 전달하며 미입력 값은 null입니다. 최초 저장은 201, 기존 정보 교체는 200입니다. "
+					+ "동일 값 재저장 시 버전과 갱신 시각을 유지합니다.")
 	@SecurityRequirement(name = "bearerAuth")
 	@ApiResponses({
 			@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "기존 정보 교체", useReturnTypeSchema = true),
@@ -26,4 +26,13 @@ public interface StudentProfileControllerDocs {
 	ResponseEntity<ApiResponse<StudentProfileResponse>> saveStudentProfile(
 			StudentProfileSaveRequest request, @Parameter(hidden = true) Principal principal,
 			@Parameter(hidden = true) HttpServletRequest servletRequest);
+
+	@Operation(operationId = "getStudentProfile", summary = "본인 학생 정보 조회")
+	@SecurityRequirement(name = "bearerAuth")
+	@ApiResponses({
+			@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", useReturnTypeSchema = true),
+			@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "프로필 미등록")
+	})
+	ResponseEntity<ApiResponse<StudentProfileResponse>> getStudentProfile(
+			@Parameter(hidden = true) Principal principal, @Parameter(hidden = true) HttpServletRequest servletRequest);
 }
