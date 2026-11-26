@@ -48,7 +48,12 @@ public class JwtTokenProvider {
 	}
 
 	public TokenClaims parseToken(String token) {
-		Claims claims = Jwts.parser().verifyWith(signingKey).build().parseSignedClaims(token).getPayload();
+		Claims claims = Jwts.parser()
+				.verifyWith(signingKey)
+				.clock(() -> Date.from(clock.instant()))
+				.build()
+				.parseSignedClaims(token)
+				.getPayload();
 		String userId = claims.getSubject();
 		if (userId == null || userId.isBlank()) {
 			throw new IllegalArgumentException("JWT subject must not be blank");

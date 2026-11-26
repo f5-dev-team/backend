@@ -1,5 +1,9 @@
 package com.f5.scholarship_backend.global.security;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+
 import com.f5.scholarship_backend.domain.user.enums.UserRole;
 import io.jsonwebtoken.ExpiredJwtException;
 import org.junit.jupiter.api.Test;
@@ -42,13 +46,27 @@ class SecurityInfrastructureTest {
 	}
 
 	@Test
-	void rejectsExpiredToken() throws InterruptedException {
-		var shortLivedProvider = new JwtTokenProvider(
-				new JwtProperties("MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=", 1));
-		String token = shortLivedProvider.createAccessToken("101", UserRole.USER);
-		Thread.sleep(1100);
+	void parsesTokenAndCalculatesRemainingExpirationWithFixedClock() {
+		Instant issuedAt = Instant.parse("2026-01-01T00:00:00Z");
+		var fixedProvider = new JwtTokenProvider(
+				new JwtProperties("MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=", 120),
+				Clock.fixed(issuedAt, ZoneOffset.UTC));
+		String token = fixedProvider.createAccessToken("101", UserRole.USER);
 
-		assertThatThrownBy(() -> shortLivedProvider.parseToken(token))
+		assertThat(fixedProvider.parseToken(token).userId()).isEqualTo("101");
+		assertThat(fixedProvider.getRemainingExpirationSeconds(token)).isEqualTo(120);
+	}
+
+	@Test
+	void rejectsExpiredTokenWithFixedClock() {
+		Instant issuedAt = Instant.parse("2026-01-01T00:00:00Z");
+		var properties = new JwtProperties("MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=", 1);
+		var issuer = new JwtTokenProvider(properties, Clock.fixed(issuedAt, ZoneOffset.UTC));
+		String token = issuer.createAccessToken("101", UserRole.USER);
+		var verifierAfterExpiration = new JwtTokenProvider(properties,
+				Clock.fixed(issuedAt.plusSeconds(2), ZoneOffset.UTC));
+
+		assertThatThrownBy(() -> verifierAfterExpiration.parseToken(token))
 				.isInstanceOf(ExpiredJwtException.class);
 	}
 
