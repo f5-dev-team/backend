@@ -1,5 +1,12 @@
 package com.f5.scholarship_backend.domain;
 
+import java.time.Instant;
+import java.util.List;
+import com.f5.scholarship_backend.domain.user.entity.User;
+import com.f5.scholarship_backend.domain.user.enums.UserRole;
+import com.f5.scholarship_backend.domain.user.repository.UserRepository;
+import com.f5.scholarship_backend.global.security.JwtTokenProvider;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,60 +37,82 @@ class CoreApiIntegrationTest {
 	private MockMvc mockMvc;
 	@Autowired
 	private JdbcTemplate jdbc;
+	@Autowired
+	private UserRepository users;
+	@Autowired
+	private JwtTokenProvider jwtTokenProvider;
+
+	private User student;
+	private User otherStudent;
+	private User admin;
 
 	@BeforeEach
 	void createTestAccounts() {
-		jdbc.execute("CREATE TABLE IF NOT EXISTS users (user_id BIGINT PRIMARY KEY, role VARCHAR(16) NOT NULL)");
-		jdbc.update("DELETE FROM student_profiles WHERE user_id IN (101,102,103)");
-		jdbc.update("MERGE INTO users (user_id,role) KEY(user_id) VALUES (101,'USER'),(102,'USER'),(103,'ADMIN')");
+		student = createAccount("student@gachon.ac.kr", UserRole.USER);
+		otherStudent = createAccount("other@gachon.ac.kr", UserRole.USER);
+		admin = createAccount("admin@gachon.ac.kr", UserRole.ADMIN);
+	}
+
+	@AfterEach
+	void removeTestAccounts() {
+		jdbc.update("DELETE FROM student_profiles WHERE user_id = ?", student.getId());
+		users.deleteAll(List.of(student, otherStudent, admin));
+	}
+
+	private User createAccount(String email, UserRole role) {
+		return users.save(User.create(email, "test-hash", role, "테스트", Instant.now(), false));
 	}
 
 	@Test
 	void analysisDoesNotReportAcceptanceBeforeIntegration() throws Exception {
-		mockMvc.perform(post("/api/v1/analyses").principal(() -> "101")
+		mockMvc.perform(post("/api/v1/analyses").header("Authorization", bearerToken(student))
 						.contentType(MediaType.APPLICATION_JSON).content("{\"profileVersion\":1}"))
 				.andExpect(status().isServiceUnavailable())
 				.andExpect(jsonPath("$.code").value("SERVICE_UNAVAILABLE"))
 				.andExpect(header().doesNotExist("Location"));
 	}
 
+	private String bearerToken(User user) {
+		return "Bearer " + jwtTokenProvider.createAccessToken(user.getId().toString(), user.getRole());
+	}
+
 	@Test
 	void savesReadsAndReplacesOnlyTheAuthenticatedProfile() throws Exception {
-		mockMvc.perform(get(PROFILE_URL).principal(() -> "101")).andExpect(status().isNotFound());
-		mockMvc.perform(put(PROFILE_URL).principal(() -> "101").contentType(MediaType.APPLICATION_JSON).content(PROFILE))
+		mockMvc.perform(get(PROFILE_URL)).andExpect(status().isUnauthorized());
+		mockMvc.perform(get(PROFILE_URL).header("Authorization", bearerToken(student))).andExpect(status().isNotFound());
+		mockMvc.perform(put(PROFILE_URL).header("Authorization", bearerToken(student)).contentType(MediaType.APPLICATION_JSON).content(PROFILE))
 				.andExpect(status().isCreated())
 				.andExpect(jsonPath("$.data.version").value(1))
 				.andExpect(jsonPath("$.data.birthDate").value("2004-06-01"));
-		mockMvc.perform(get(PROFILE_URL).principal(() -> "101"))
+		mockMvc.perform(get(PROFILE_URL).header("Authorization", bearerToken(student)))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.incomeAssessment.bracket").value("나"))
 				.andExpect(jsonPath("$.data.residence.sigunguCode").value("41130"));
-		mockMvc.perform(get(PROFILE_URL).principal(() -> "102")).andExpect(status().isNotFound());
-		mockMvc.perform(get(PROFILE_URL).principal(() -> "103")).andExpect(status().isForbidden());
+		mockMvc.perform(get(PROFILE_URL).header("Authorization", bearerToken(otherStudent))).andExpect(status().isNotFound());
+		mockMvc.perform(get(PROFILE_URL).header("Authorization", bearerToken(admin))).andExpect(status().isForbidden());
 
-		String updatedAt = jdbc.queryForObject("SELECT CAST(updated_at AS VARCHAR) FROM student_profiles WHERE user_id=101",
-				String.class);
-		mockMvc.perform(put(PROFILE_URL).principal(() -> "101").contentType(MediaType.APPLICATION_JSON)
+		String updatedAt = jdbc.queryForObject("SELECT CAST(updated_at AS VARCHAR) FROM student_profiles WHERE user_id = ?",
+				String.class, student.getId());
+		mockMvc.perform(put(PROFILE_URL).header("Authorization", bearerToken(student)).contentType(MediaType.APPLICATION_JSON)
 						.content(PROFILE.replace("3.30", "3.3")))
 				.andExpect(status().isOk()).andExpect(jsonPath("$.data.version").value(1));
 		org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
-				"SELECT CAST(updated_at AS VARCHAR) FROM student_profiles WHERE user_id=101", String.class))
+				"SELECT CAST(updated_at AS VARCHAR) FROM student_profiles WHERE user_id = ?", String.class, student.getId()))
 				.isEqualTo(updatedAt);
-		mockMvc.perform(put(PROFILE_URL).principal(() -> "101").contentType(MediaType.APPLICATION_JSON)
+		mockMvc.perform(put(PROFILE_URL).header("Authorization", bearerToken(student)).contentType(MediaType.APPLICATION_JSON)
 						.content(PROFILE.replace("750", "0")))
 				.andExpect(status().isOk()).andExpect(jsonPath("$.data.version").value(2));
-		mockMvc.perform(get(PROFILE_URL).principal(() -> "101"))
+		mockMvc.perform(get(PROFILE_URL).header("Authorization", bearerToken(student)))
 				.andExpect(status().isOk()).andExpect(jsonPath("$.data.version").value(2))
 				.andExpect(jsonPath("$.data.volunteerMinutes").value(0));
 	}
 
 	@Test
 	void rejectsGradeOutsideConfiguredDepartmentRange() throws Exception {
-		mockMvc.perform(put(PROFILE_URL).principal(() -> "101").contentType(MediaType.APPLICATION_JSON)
+		mockMvc.perform(put(PROFILE_URL).header("Authorization", bearerToken(student)).contentType(MediaType.APPLICATION_JSON)
 						.content(PROFILE.replace("\"grade\":3", "\"grade\":5")))
 				.andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
 	}
-
 
 	@Test
 	void openApiDescribesBothContractsAndCommonErrors() throws Exception {
