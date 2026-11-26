@@ -1,52 +1,78 @@
 package com.f5.scholarship_backend.domain.student.dto;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.f5.scholarship_backend.domain.student.enums.EnrollmentStatus;
 import com.f5.scholarship_backend.domain.student.enums.Gender;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.AssertTrue;
+import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 
-@Schema(description = "10개 필드를 모두 전달하는 전체 교체 요청. 미확인 값은 null을 전달합니다.")
+@Schema(description = "본인 학생 정보 전체 교체 요청. 최상위 키는 모두 전달하며 미입력 값은 null을 사용합니다.")
 public record StudentProfileSaveRequest(
-		@JsonProperty(required = true)
-		@Schema(description = "학과", example = "컴퓨터공학과", nullable = true)
-		@Pattern(regexp = "(?s).*\\S.*", message = "학과는 공백만 입력할 수 없습니다.")
-		String department,
-		@JsonProperty(required = true)
-		@Schema(description = "학년", example = "3", nullable = true)
-		@Min(value = 1, message = "학년은 1 이상이어야 합니다.")
-		Integer grade,
-		@JsonProperty(required = true)
-		@Schema(description = "학적 상태", nullable = true)
-		EnrollmentStatus enrollmentStatus,
-		@JsonProperty(required = true)
-		@Schema(description = "전체 학점. 만점 기준과 환산 정책은 미확정입니다.", nullable = true)
-		@DecimalMin(value = "0", message = "전체 학점은 0 이상이어야 합니다.")
-		BigDecimal cumulativeGpa,
-		@JsonProperty(required = true)
-		@Schema(description = "직전 학기 학점", nullable = true)
-		@DecimalMin(value = "0", message = "직전 학기 학점은 0 이상이어야 합니다.")
-		BigDecimal previousSemesterGpa,
-		@JsonProperty(required = true)
-		@Schema(description = "소득구간. 상한과 특수 구간 표현은 미확정입니다.", nullable = true)
-		@Min(value = 0, message = "소득구간은 0 이상이어야 합니다.")
-		Integer incomeBracket,
-		@JsonProperty(required = true)
-		@Schema(description = "봉사시간", nullable = true)
-		@DecimalMin(value = "0", message = "봉사시간은 0 이상이어야 합니다.")
-		BigDecimal volunteerHours,
-		@JsonProperty(required = true)
-		@Schema(description = "나이. 나이 산정 기준은 미확정입니다.", nullable = true)
-		@Min(value = 0, message = "나이는 0 이상이어야 합니다.")
-		Integer age,
-		@JsonProperty(required = true)
-		@Schema(description = "1년 이상 주민등록된 주소지. 미확인이면 null", nullable = true)
-		String residenceAddress,
-		@JsonProperty(required = true)
-		@Schema(description = "성별. 미제공이면 null", nullable = true)
-		Gender gender
+		@JsonProperty(required = true) @Pattern(regexp = "[A-Za-z0-9_-]{1,100}") String departmentCode,
+		@JsonProperty(required = true) @Min(1) Integer grade,
+		@JsonProperty(required = true) EnrollmentStatus enrollmentStatus,
+		@JsonProperty(required = true) @DecimalMin("0") @DecimalMax("4.50")
+		@Digits(integer = 1, fraction = 2) BigDecimal cumulativeGpa,
+		@JsonProperty(required = true) @DecimalMin("0") @DecimalMax("4.50")
+		@Digits(integer = 1, fraction = 2) BigDecimal previousSemesterGpa,
+		@JsonProperty(required = true) @Valid IncomeAssessment incomeAssessment,
+		@JsonProperty(required = true) SpecialEligibility specialEligibility,
+		@JsonProperty(required = true) @Min(0) Long volunteerMinutes,
+		@JsonProperty(required = true) LocalDate birthDate,
+		@JsonProperty(required = true) @Valid Residence residence,
+		@JsonProperty(required = true) Gender gender
 ) {
+	public enum IncomeStatus { CALCULATED, NOT_CALCULATED, UNKNOWN }
+	public enum IncomeScale { TEN_BRACKETS, FIVE_GROUPS }
+	public enum SpecialEligibility { BASIC_LIVELIHOOD, NEAR_POOR, NONE, UNKNOWN }
+	public enum ResidenceStatus { REGISTERED, NOT_REGISTERED, UNKNOWN }
+
+	public record IncomeAssessment(
+			@NotNull IncomeStatus status,
+			@Min(1) Integer year,
+			@Min(1) @jakarta.validation.constraints.Max(2) Integer semester,
+			IncomeScale scale,
+			String bracket
+	) {
+		@JsonIgnore
+		@AssertTrue(message = "산정 학기, 구간 체계와 구간이 서로 일치해야 합니다.")
+		public boolean isConsistent() {
+			if ((year == null) != (semester == null)) {
+				return false;
+			}
+			if (status != IncomeStatus.CALCULATED) {
+				return scale == null && bracket == null;
+			}
+			if (year == null || scale == null || bracket == null) {
+				return false;
+			}
+			return year < 2027
+					? scale == IncomeScale.TEN_BRACKETS && bracket.matches("[1-9]|10")
+					: scale == IncomeScale.FIVE_GROUPS && bracket.matches("[가나다라마]");
+		}
+	}
+
+	public record Residence(
+			@NotNull ResidenceStatus status,
+			@Pattern(regexp = "[0-9]{2}") String sidoCode,
+			@Pattern(regexp = "[0-9]{5}") String sigunguCode
+	) {
+		@JsonIgnore
+		@AssertTrue(message = "주소 있음일 때만 시·도와 해당 시·군·구 코드를 함께 입력해 주세요.")
+		public boolean isConsistent() {
+			return status == ResidenceStatus.REGISTERED
+					? sidoCode != null && sigunguCode != null && sigunguCode.startsWith(sidoCode)
+					: sidoCode == null && sigunguCode == null;
+		}
+	}
 }

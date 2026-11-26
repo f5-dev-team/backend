@@ -14,6 +14,7 @@ import jakarta.validation.Valid;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -35,16 +36,31 @@ public class StudentProfileController implements StudentProfileControllerDocs {
 	public ResponseEntity<ApiResponse<StudentProfileResponse>> saveStudentProfile(
 			@Valid @RequestBody StudentProfileSaveRequest request,
 			Principal principal, HttpServletRequest servletRequest) {
-		// 인증 모듈이 제공하는 Principal만 사용하며 클라이언트의 userId는 받지 않는다.
+		String userId = authenticatedUserId(principal, servletRequest);
+		var result = studentProfileService.save(userId, request);
+		return ResponseEntity.status(result.created() ? HttpStatus.CREATED : HttpStatus.OK)
+				.cacheControl(CacheControl.noStore())
+				.body(ApiResponse.of(result.profile(), RequestIdFilter.getRequestId(servletRequest)));
+	}
+
+	@Override
+	@GetMapping
+	public ResponseEntity<ApiResponse<StudentProfileResponse>> getStudentProfile(
+			Principal principal, HttpServletRequest servletRequest) {
+		String userId = authenticatedUserId(principal, servletRequest);
+		var profile = studentProfileService.findForAnalysis(userId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
+		return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+				.body(ApiResponse.of(profile, RequestIdFilter.getRequestId(servletRequest)));
+	}
+
+	private String authenticatedUserId(Principal principal, HttpServletRequest servletRequest) {
 		if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
 			throw new BusinessException(ErrorCode.TOKEN_INVALID);
 		}
 		if (!servletRequest.getParameterMap().isEmpty()) {
 			throw new BusinessException(ErrorCode.VALIDATION_ERROR);
 		}
-		var result = studentProfileService.save(principal.getName(), request);
-		return ResponseEntity.status(result.created() ? HttpStatus.CREATED : HttpStatus.OK)
-				.cacheControl(CacheControl.noStore())
-				.body(ApiResponse.of(result.profile(), RequestIdFilter.getRequestId(servletRequest)));
+		return principal.getName();
 	}
 }
