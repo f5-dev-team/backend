@@ -61,6 +61,28 @@ class SecurityInfrastructureTest {
 	}
 
 	@Test
+	void acceptsBearerTokenWithSingleOrMultipleAsciiSpaces() throws Exception {
+		String token = tokenProvider.createAccessToken("201", UserRole.ADMIN);
+
+		mockMvc.perform(get(PROTECTED_ADMIN_URL).header("Authorization", "Bearer " + token))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
+		mockMvc.perform(get(PROTECTED_ADMIN_URL).header("Authorization", "Bearer  " + token))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
+	}
+
+	@Test
+	void rejectsWhitespaceInsideBearerToken() throws Exception {
+		String token = tokenProvider.createAccessToken("201", UserRole.ADMIN);
+		int midpoint = token.length() / 2;
+		String tokenWithWhitespace = token.substring(0, midpoint) + " " + token.substring(midpoint);
+
+		assertUnauthorized(mockMvc.perform(get(PROTECTED_ADMIN_URL)
+				.header("Authorization", "Bearer " + tokenWithWhitespace)));
+	}
+
+	@Test
 	void publicSessionEndpointIsNotRejectedForTamperedBearerToken() throws Exception {
 		mockMvc.perform(post("/api/v1/sessions")
 						.header("Authorization", "Bearer malformed-token"))

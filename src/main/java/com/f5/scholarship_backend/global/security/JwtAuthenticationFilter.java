@@ -25,7 +25,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 			FilterChain filterChain) throws ServletException, IOException {
 		String authorization = request.getHeader("Authorization");
 		if (authorization != null && authorization.regionMatches(true, 0, "Bearer ", 0, 7)) {
-			String token = authorization.substring(7);
+			int tokenStart = 7;
+			while (tokenStart < authorization.length() && authorization.charAt(tokenStart) == ' ') {
+				tokenStart++;
+			}
+			String token = authorization.substring(tokenStart);
 			try {
 				JwtTokenProvider.TokenClaims claims = tokenProvider.parseToken(token);
 				var authentication = new UsernamePasswordAuthenticationToken(
