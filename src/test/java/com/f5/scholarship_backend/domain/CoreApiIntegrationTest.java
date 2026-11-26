@@ -9,6 +9,8 @@ import com.f5.scholarship_backend.global.security.JwtTokenProvider;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -107,11 +109,19 @@ class CoreApiIntegrationTest {
 				.andExpect(jsonPath("$.data.volunteerMinutes").value(0));
 	}
 
-	@Test
-	void rejectsGradeOutsideConfiguredDepartmentRange() throws Exception {
-		mockMvc.perform(put(PROFILE_URL).header("Authorization", bearerToken(student)).contentType(MediaType.APPLICATION_JSON)
-						.content(PROFILE.replace("\"grade\":3", "\"grade\":5")))
+	@ParameterizedTest
+	@CsvSource({
+			"'\"grade\":3', '\"grade\":5'",
+			"'\"grade\":3', '\"grade\":65536'",
+			"CS, INVALID_DEPARTMENT",
+			"41130, 41999"
+	})
+	void rejectsInvalidGradeDepartmentOrRegion(String original, String invalid) throws Exception {
+		mockMvc.perform(put(PROFILE_URL).header("Authorization", bearerToken(student))
+						.contentType(MediaType.APPLICATION_JSON).content(PROFILE.replace(original, invalid)))
 				.andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+		mockMvc.perform(get(PROFILE_URL).header("Authorization", bearerToken(student)))
+				.andExpect(status().isNotFound());
 	}
 
 	@Test

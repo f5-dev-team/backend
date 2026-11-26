@@ -4,9 +4,11 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Optional;
+import com.f5.scholarship_backend.domain.student.config.ResidenceCodeCatalog;
 import com.f5.scholarship_backend.domain.student.config.StudentProfileProperties;
 import com.f5.scholarship_backend.domain.student.dto.StudentProfileResponse;
 import com.f5.scholarship_backend.domain.student.dto.StudentProfileSaveRequest;
+import com.f5.scholarship_backend.domain.student.dto.StudentProfileSaveRequest.ResidenceStatus;
 import com.f5.scholarship_backend.domain.student.entity.StudentProfile;
 import com.f5.scholarship_backend.domain.student.entity.StudentProfileData;
 import com.f5.scholarship_backend.domain.student.repository.StudentProfileRepository;
@@ -23,11 +25,14 @@ public class StudentProfileService {
 
 	private final StudentProfileRepository profiles;
 	private final StudentProfileProperties properties;
+	private final ResidenceCodeCatalog residenceCodes;
 	private final Clock clock;
 
-	public StudentProfileService(StudentProfileRepository profiles, StudentProfileProperties properties, Clock clock) {
+	public StudentProfileService(StudentProfileRepository profiles, StudentProfileProperties properties,
+			ResidenceCodeCatalog residenceCodes, Clock clock) {
 		this.profiles = profiles;
 		this.properties = properties;
+		this.residenceCodes = residenceCodes;
 		this.clock = clock;
 	}
 
@@ -62,12 +67,29 @@ public class StudentProfileService {
 			throw new BusinessException(ErrorCode.VALIDATION_ERROR);
 		}
 
+		validateDepartmentAndGrade(request.departmentCode(), request.grade());
+		var residence = request.residence();
+		if (residence != null && residence.status() == ResidenceStatus.REGISTERED
+				&& !residenceCodes.contains(residence.sidoCode(), residence.sigunguCode())) {
+			throw new BusinessException(ErrorCode.VALIDATION_ERROR);
+		}
+	}
+
+	private void validateDepartmentAndGrade(String departmentCode, Integer grade) {
+		if (departmentCode == null && grade == null) {
+			return;
+		}
+
 		var catalog = properties.departmentMaxGrades();
-		if (!catalog.isEmpty() && request.departmentCode() != null) {
-			Integer maxGrade = catalog.get(request.departmentCode());
-			if (maxGrade == null || (request.grade() != null && request.grade() > maxGrade)) {
-				throw new BusinessException(ErrorCode.VALIDATION_ERROR);
-			}
+		if (catalog.isEmpty()) {
+			throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE);
+		}
+
+		Integer maxGrade = departmentCode == null
+				? java.util.Collections.max(catalog.values())
+				: catalog.get(departmentCode);
+		if (maxGrade == null || (grade != null && grade > maxGrade)) {
+			throw new BusinessException(ErrorCode.VALIDATION_ERROR);
 		}
 	}
 

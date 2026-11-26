@@ -146,7 +146,8 @@ class CoreApiControllerTest {
 		return Stream.of(
 				Arguments.of("departmentCode", "\"\""), Arguments.of("departmentCode", "\"   \""),
 				Arguments.of("departmentCode", "123"), Arguments.of("residence", "true"),
-				Arguments.of("grade", "0"), Arguments.of("grade", "1.5"), Arguments.of("grade", "\"3\""),
+				Arguments.of("grade", "0"), Arguments.of("grade", "65536"),
+				Arguments.of("grade", "1.5"), Arguments.of("grade", "\"3\""),
 				Arguments.of("birthDate", "\"2020-02-30\""),
 				Arguments.of("incomeAssessment", "{\"status\":\"CALCULATED\",\"year\":2027,\"semester\":1,\"scale\":\"TEN_BRACKETS\",\"bracket\":\"4\"}"),
 				Arguments.of("residence", "{\"status\":\"REGISTERED\",\"sidoCode\":\"41\",\"sigunguCode\":\"11110\"}"),

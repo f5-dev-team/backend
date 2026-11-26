@@ -12,6 +12,7 @@ import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -19,7 +20,7 @@ import jakarta.validation.constraints.Pattern;
 @Schema(description = "본인 학생 정보 전체 교체 요청. 최상위 키는 모두 전달하며 미입력 값은 null을 사용합니다.")
 public record StudentProfileSaveRequest(
 		@JsonProperty(required = true) @Pattern(regexp = "[A-Za-z0-9_-]{1,100}") String departmentCode,
-		@JsonProperty(required = true) @Min(1) Integer grade,
+		@JsonProperty(required = true) @Min(1) @Max(65535) Integer grade,
 		@JsonProperty(required = true) EnrollmentStatus enrollmentStatus,
 		@JsonProperty(required = true) @DecimalMin("0") @DecimalMax("4.50")
 		@Digits(integer = 1, fraction = 2) BigDecimal cumulativeGpa,
@@ -40,7 +41,7 @@ public record StudentProfileSaveRequest(
 	public record IncomeAssessment(
 			@NotNull IncomeStatus status,
 			@Min(1) Integer year,
-			@Min(1) @jakarta.validation.constraints.Max(2) Integer semester,
+			@Min(1) @Max(2) Integer semester,
 			IncomeScale scale,
 			String bracket
 	) {
