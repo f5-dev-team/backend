@@ -4,6 +4,7 @@ import java.security.Principal;
 import com.f5.scholarship_backend.domain.analysis.controller.docs.AnalysisControllerDocs;
 import com.f5.scholarship_backend.domain.analysis.dto.AnalysisCreateRequest;
 import com.f5.scholarship_backend.domain.analysis.dto.AnalysisCreateResponse;
+import com.f5.scholarship_backend.domain.analysis.dto.AnalysisStatusResponse;
 import com.f5.scholarship_backend.domain.analysis.service.AnalysisService;
 import com.f5.scholarship_backend.global.config.RequestIdFilter;
 import com.f5.scholarship_backend.global.exception.BusinessException;
@@ -13,6 +14,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -35,16 +38,30 @@ public class AnalysisController implements AnalysisControllerDocs {
 	public ResponseEntity<ApiResponse<AnalysisCreateResponse>> createAnalysis(
 			@Valid @RequestBody AnalysisCreateRequest request,
 			Principal principal, HttpServletRequest servletRequest) {
-		if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
-			throw new BusinessException(ErrorCode.TOKEN_INVALID);
-		}
+		String userId = requireUserId(principal);
 		if (!servletRequest.getParameterMap().isEmpty()) {
 			throw new BusinessException(ErrorCode.VALIDATION_ERROR);
 		}
-		var result = analysisService.create(principal.getName(), request.profileVersion());
+		var result = analysisService.create(userId, request.profileVersion());
 		var location = UriComponentsBuilder.fromPath("/api/v1/analyses")
 				.pathSegment(result.analysisId()).build().encode().toUri();
 		return ResponseEntity.accepted().location(location).cacheControl(CacheControl.noStore())
 				.body(ApiResponse.of(result, RequestIdFilter.getRequestId(servletRequest)));
+	}
+
+	@Override
+	@GetMapping("/{analysisId}")
+	public ResponseEntity<ApiResponse<AnalysisStatusResponse>> getAnalysisStatus(
+			@PathVariable String analysisId, Principal principal, HttpServletRequest servletRequest) {
+		var result = analysisService.findStatus(requireUserId(principal), analysisId);
+		return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+				.body(ApiResponse.of(result, RequestIdFilter.getRequestId(servletRequest)));
+	}
+
+	private static String requireUserId(Principal principal) {
+		if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
+			throw new BusinessException(ErrorCode.TOKEN_INVALID);
+		}
+		return principal.getName();
 	}
 }
