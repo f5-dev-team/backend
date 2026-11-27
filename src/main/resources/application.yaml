@@ -42,3 +42,4 @@ document-storage:
   max-files: 10
   max-post-bytes: 104857600
   download-timeout: 60s
+  access-url-ttl-seconds: ${DOCUMENT_ACCESS_URL_TTL_SECONDS:300}
