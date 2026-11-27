@@ -10,5 +10,9 @@ spring:
       ddl-auto: none
     show-sql: false
     open-in-view: false
+analysis:
+  worker:
+    enabled: false
+
 crawler:
   enabled: false

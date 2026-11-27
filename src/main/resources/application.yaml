@@ -8,6 +8,11 @@ spring:
       pool:
         size: 2
 
+analysis:
+  worker:
+    enabled: ${ANALYSIS_WORKER_ENABLED:true}
+    poll-delay: 1s
+
 crawler:
   enabled: ${CRAWLER_ENABLED:false}
   board-url: https://www.gachon.ac.kr/bbs/kor/478/artclList.do
