@@ -4,8 +4,10 @@ import java.security.Principal;
 import com.f5.scholarship_backend.domain.analysis.controller.docs.AnalysisControllerDocs;
 import com.f5.scholarship_backend.domain.analysis.dto.AnalysisCreateRequest;
 import com.f5.scholarship_backend.domain.analysis.dto.AnalysisCreateResponse;
+import com.f5.scholarship_backend.domain.analysis.dto.AnalysisRecommendationsResponse;
 import com.f5.scholarship_backend.domain.analysis.dto.AnalysisStatusResponse;
 import com.f5.scholarship_backend.domain.analysis.service.AnalysisService;
+import com.f5.scholarship_backend.domain.matching.enums.EligibilityStatus;
 import com.f5.scholarship_backend.global.config.RequestIdFilter;
 import com.f5.scholarship_backend.global.exception.BusinessException;
 import com.f5.scholarship_backend.global.exception.ErrorCode;
@@ -19,6 +21,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -54,6 +57,19 @@ public class AnalysisController implements AnalysisControllerDocs {
 	public ResponseEntity<ApiResponse<AnalysisStatusResponse>> getAnalysisStatus(
 			@PathVariable String analysisId, Principal principal, HttpServletRequest servletRequest) {
 		var result = analysisService.findStatus(requireUserId(principal), analysisId);
+		return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+				.body(ApiResponse.of(result, RequestIdFilter.getRequestId(servletRequest)));
+	}
+
+	@Override
+	@GetMapping("/{analysisId}/recommendations")
+	public ResponseEntity<ApiResponse<AnalysisRecommendationsResponse>> getRecommendations(
+			@PathVariable String analysisId,
+			@RequestParam(defaultValue = "0") int page,
+			@RequestParam(defaultValue = "20") int size,
+			@RequestParam(required = false) EligibilityStatus eligibilityStatus,
+			Principal principal, HttpServletRequest servletRequest) {
+		var result = analysisService.findRecommendations(requireUserId(principal), analysisId, page, size, eligibilityStatus);
 		return ResponseEntity.ok().cacheControl(CacheControl.noStore())
 				.body(ApiResponse.of(result, RequestIdFilter.getRequestId(servletRequest)));
 	}

@@ -7,7 +7,11 @@ import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.List;
 import com.f5.scholarship_backend.domain.analysis.dto.AnalysisCreateResponse;
+import com.f5.scholarship_backend.domain.analysis.dto.AnalysisRecommendationsResponse;
+import com.f5.scholarship_backend.domain.analysis.dto.AnalysisRecommendationsResponse.Recommendation;
+import com.f5.scholarship_backend.domain.analysis.dto.ConditionResult;
 import com.f5.scholarship_backend.domain.analysis.dto.AnalysisStatusResponse;
 import com.f5.scholarship_backend.domain.analysis.dto.AnalysisStatusResponse.Exclusion;
 import com.f5.scholarship_backend.domain.analysis.dto.AnalysisStatusResponse.Failure;
@@ -16,21 +20,27 @@ import com.f5.scholarship_backend.domain.analysis.entity.AnalysisJob;
 import com.f5.scholarship_backend.domain.analysis.enums.AnalysisExclusionReason;
 import com.f5.scholarship_backend.domain.analysis.enums.AnalysisStatus;
 import com.f5.scholarship_backend.domain.analysis.repository.AnalysisItemRepository;
+import com.f5.scholarship_backend.domain.analysis.repository.AnalysisItemRepository.RecommendationRow;
 import com.f5.scholarship_backend.domain.analysis.repository.AnalysisJobRepository;
+import com.f5.scholarship_backend.domain.matching.enums.EligibilityStatus;
 import com.f5.scholarship_backend.domain.scholarship.repository.ScholarshipRepository;
 import com.f5.scholarship_backend.domain.scholarship.repository.ScholarshipRepository.AnalysisCandidate;
 import com.f5.scholarship_backend.domain.student.dto.StudentProfileResponse;
 import com.f5.scholarship_backend.domain.student.service.StudentProfileService;
 import com.f5.scholarship_backend.global.exception.BusinessException;
 import com.f5.scholarship_backend.global.exception.ErrorCode;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
 @Service
 public class AnalysisService {
+	private static final TypeReference<List<String>> REASONS_TYPE = new TypeReference<>() { };
+	private static final TypeReference<List<ConditionResult>> CONDITIONS_TYPE = new TypeReference<>() { };
 	private final StudentProfileService profiles;
 	private final AnalysisJobRepository jobs;
 	private final AnalysisItemRepository items;
@@ -69,10 +79,8 @@ public class AnalysisService {
 
 	@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
 	public AnalysisStatusResponse findStatus(String userId, String analysisId) {
-		long accountId = positiveId(userId, ErrorCode.TOKEN_INVALID);
-		long id = positiveId(analysisId, ErrorCode.RESOURCE_NOT_FOUND);
-		var job = jobs.findByIdAndUserId(id, accountId)
-				.orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
+		var job = findOwnedJob(userId, analysisId);
+		long id = job.getId();
 
 		long total = 0;
 		long excluded = 0;
@@ -92,6 +100,43 @@ public class AnalysisService {
 		return new AnalysisStatusResponse(job.getId().toString(), job.getStatus(), job.getProfileVersion(),
 				total, total + excluded, excluded, exclusions, processed, atUtc(job.getCreatedAt()),
 				atUtc(job.getStartedAt()), atUtc(job.getCompletedAt()), publicFailure(job));
+	}
+
+	@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+	public AnalysisRecommendationsResponse findRecommendations(String userId, String analysisId,
+			int page, int size, EligibilityStatus eligibilityStatus) {
+		if (page < 0 || size < 1 || size > 100) {
+			throw new BusinessException(ErrorCode.VALIDATION_ERROR);
+		}
+		var job = findOwnedJob(userId, analysisId);
+		switch (job.getStatus()) {
+			case QUEUED, RUNNING -> throw new BusinessException(ErrorCode.ANALYSIS_NOT_COMPLETED);
+			case FAILED -> throw new BusinessException(ErrorCode.ANALYSIS_FAILED);
+			case COMPLETED -> { }
+		}
+
+		long total = items.countRecommendations(job.getId(), eligibilityStatus);
+		long totalPages = total == 0 ? 0 : (total - 1) / size + 1;
+		List<Recommendation> recommendations = page >= totalPages ? List.of()
+				: items.findRecommendations(job.getId(), eligibilityStatus, PageRequest.of(page, size)).stream()
+						.map(this::toRecommendation).toList();
+		return new AnalysisRecommendationsResponse(job.getId().toString(), job.getProfileVersion(),
+				recommendations, page, size, total, totalPages);
+	}
+
+	private AnalysisJob findOwnedJob(String userId, String analysisId) {
+		long accountId = positiveId(userId, ErrorCode.TOKEN_INVALID);
+		long id = positiveId(analysisId, ErrorCode.RESOURCE_NOT_FOUND);
+		return jobs.findByIdAndUserId(id, accountId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
+	}
+
+	private Recommendation toRecommendation(RecommendationRow row) {
+		return new Recommendation(row.getScholarshipId().toString(), row.getScholarshipVersion(),
+				row.getTitle(), atUtc(row.getApplicationEndAt()), row.getEligibilityStatus(),
+				row.getApplicationPeriodStatus(), row.getApplicationPeriodMessage(),
+				json.readValue(row.getReasons(), REASONS_TYPE), json.readValue(row.getUnmetConditions(), CONDITIONS_TYPE),
+				json.readValue(row.getUnresolvedConditions(), CONDITIONS_TYPE));
 	}
 
 	private String snapshot(StudentProfileResponse profile) {

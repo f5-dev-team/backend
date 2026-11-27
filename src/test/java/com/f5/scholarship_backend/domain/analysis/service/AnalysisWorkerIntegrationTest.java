@@ -22,6 +22,7 @@ import com.f5.scholarship_backend.domain.student.service.StudentProfileService;
 import com.f5.scholarship_backend.domain.user.entity.User;
 import com.f5.scholarship_backend.domain.user.enums.UserRole;
 import com.f5.scholarship_backend.domain.user.repository.UserRepository;
+import com.f5.scholarship_backend.global.security.JwtTokenProvider;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,16 +31,23 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.json.JsonMapper;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.nullValue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringBootTest(properties = {
 		"spring.datasource.url=jdbc:h2:mem:analysisWorkerTest",
 		"analysis.worker.enabled=false",
 		"student-profile.department-max-grades.CS=4"
 })
+@AutoConfigureMockMvc
 @ActiveProfiles("test")
 @ExtendWith(OutputCaptureExtension.class)
 class AnalysisWorkerIntegrationTest {
@@ -49,6 +57,8 @@ class AnalysisWorkerIntegrationTest {
 			"volunteerMinutes":750,"birthDate":"2004-06-01","residence":null,"gender":null}
 			""";
 
+	@Autowired private MockMvc mockMvc;
+	@Autowired private JwtTokenProvider tokens;
 	@Autowired private AnalysisService analyses;
 	@Autowired private AnalysisWorker worker;
 	@Autowired private AnalysisExecution execution;
@@ -233,6 +243,115 @@ class AnalysisWorkerIntegrationTest {
 		execution.failAbandoned();
 		assertThat(analyses.findStatus(userId, Long.toString(abandoned)).status()).isEqualTo(AnalysisStatus.FAILED);
 		assertThat(analyses.findStatus(userId, Long.toString(current)).status()).isEqualTo(AnalysisStatus.RUNNING);
+	}
+
+	@Test
+	void returnsPagedRecommendationsFromPinnedVersionsAndStoredResults() throws Exception {
+		long eligible = addScholarship("recommend-eligible", "READY");
+		addCondition(eligible, 1, "grade", "EQ", "3", "", true);
+		var deadline = clock.instant().plusSeconds(7200).truncatedTo(ChronoUnit.SECONDS);
+		jdbc.update("update scholarship_versions set title = ?, application_end_at = ? where scholarship_id = ?",
+				"분석 시점 공고", utc(deadline), eligible);
+
+		long excluded = addScholarship("recommend-excluded", "PENDING");
+		long ineligible = addScholarship("recommend-ineligible", "READY");
+		addCondition(ineligible, 1, "cumulativeGpa", "GTE", "3.50", "전체평점 3.50 이상(4.5 만점)", true);
+		addCondition(ineligible, 1, "other", "TEXT", null, "학과장 추천 필요", true);
+		long needsReview = addScholarship("recommend-needs-review", "READY");
+		long analysisId = startAnalysis();
+		addVersion(eligible, 2);
+		assertThat(worker.runNext()).isTrue();
+
+		var url = recommendationsUrl(analysisId);
+		var bearer = authorization(userId, UserRole.USER);
+		mockMvc.perform(get(url).header("Authorization", bearer))
+				.andExpect(status().isOk())
+				.andExpect(header().string("Cache-Control", "no-store"))
+				.andExpect(jsonPath("$.meta.requestId").isString())
+				.andExpect(jsonPath("$.data.analysisId").value(Long.toString(analysisId)))
+				.andExpect(jsonPath("$.data.profileVersion").value(1))
+				.andExpect(jsonPath("$.data.page").value(0))
+				.andExpect(jsonPath("$.data.size").value(20))
+				.andExpect(jsonPath("$.data.totalPages").value(1))
+				.andExpect(jsonPath("$.data.totalElements").value(3))
+				.andExpect(jsonPath("$.data.items[*].scholarshipId", contains(
+						Long.toString(needsReview), Long.toString(ineligible), Long.toString(eligible))))
+				.andExpect(jsonPath("$.data.items[*].eligibilityStatus", contains("NEEDS_REVIEW", "INELIGIBLE", "ELIGIBLE")))
+				.andExpect(jsonPath("$.data.items[0].unresolvedConditions[0].conditionId").value(nullValue()))
+				.andExpect(jsonPath("$.data.items[1].reasons[0]").isString())
+				.andExpect(jsonPath("$.data.items[1].unmetConditions[0].actualValue").value(3.3))
+				.andExpect(jsonPath("$.data.items[1].unmetConditions[0].gap").value(0.2))
+				.andExpect(jsonPath("$.data.items[1].unresolvedConditions[0].reasonCode").value("UNSUPPORTED_RULE"))
+				.andExpect(jsonPath("$.data.items[2].title").value("분석 시점 공고"))
+				.andExpect(jsonPath("$.data.items[2].scholarshipVersion").value(1))
+				.andExpect(jsonPath("$.data.items[2].applicationEndAt").value(deadline.toString()))
+				.andExpect(jsonPath("$.data.items[2].applicationPeriodStatus").value("OPEN"))
+				.andExpect(jsonPath("$.data.items[2].applicationPeriodMessage").value(nullValue()))
+				.andExpect(jsonPath("$.data.items[2].unmetConditions").isEmpty());
+		assertThat(queryResult(analysisId, excluded, "eligibility_status")).isNull();
+
+		mockMvc.perform(get(url).header("Authorization", bearer).param("page", "1").param("size", "1"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.items[*].scholarshipId", contains(Long.toString(ineligible))))
+				.andExpect(jsonPath("$.data.totalPages").value(3));
+		mockMvc.perform(get(url).header("Authorization", bearer).param("eligibilityStatus", "ELIGIBLE").param("size", "1"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.items[*].scholarshipId", contains(Long.toString(eligible))))
+				.andExpect(jsonPath("$.data.totalPages").value(1))
+				.andExpect(jsonPath("$.data.totalElements").value(1));
+		mockMvc.perform(get(url).header("Authorization", bearer).param("eligibilityStatus", "INELIGIBLE")
+						.param("page", Integer.toString(Integer.MAX_VALUE)).param("size", "100"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.items").isEmpty())
+				.andExpect(jsonPath("$.data.totalPages").value(1))
+				.andExpect(jsonPath("$.data.totalElements").value(1));
+	}
+
+	@Test
+	void onlyAllowsValidRequestsForOwnedCompletedAnalyses() throws Exception {
+		long analysisId = startAnalysis();
+		var url = recommendationsUrl(analysisId);
+		var bearer = authorization(userId, UserRole.USER);
+		var other = users.save(User.create("other-" + UUID.randomUUID() + "@example.test", "test-hash",
+				UserRole.USER, "테스트", clock.instant(), false));
+		mockMvc.perform(get(url)).andExpect(status().isUnauthorized());
+		mockMvc.perform(get(url).header("Authorization", authorization(userId, UserRole.ADMIN)))
+				.andExpect(status().isForbidden());
+		mockMvc.perform(get(url).header("Authorization", authorization(other.getId().toString(), UserRole.USER)))
+				.andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
+		mockMvc.perform(get(recommendationsUrl(Long.MAX_VALUE)).header("Authorization", bearer))
+				.andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
+		mockMvc.perform(get(url).header("Authorization", bearer).param("page", "-1"))
+				.andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+		mockMvc.perform(get(url).header("Authorization", bearer).param("size", "101"))
+				.andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+		mockMvc.perform(get(url).header("Authorization", bearer).param("eligibilityStatus", "UNKNOWN"))
+				.andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+		mockMvc.perform(get(url).header("Authorization", bearer))
+				.andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("ANALYSIS_NOT_COMPLETED"));
+
+		assertThat(execution.claimNext()).contains(analysisId);
+		mockMvc.perform(get(url).header("Authorization", bearer))
+				.andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("ANALYSIS_NOT_COMPLETED"));
+		execution.markFailed(analysisId);
+		mockMvc.perform(get(url).header("Authorization", bearer))
+				.andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("ANALYSIS_FAILED"));
+
+		long emptyAnalysis = startAnalysis();
+		assertThat(worker.runNext()).isTrue();
+		mockMvc.perform(get(recommendationsUrl(emptyAnalysis)).header("Authorization", bearer))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.items").isEmpty())
+				.andExpect(jsonPath("$.data.totalPages").value(0))
+				.andExpect(jsonPath("$.data.totalElements").value(0));
+	}
+
+	private static String recommendationsUrl(long analysisId) {
+		return "/api/v1/analyses/" + analysisId + "/recommendations";
+	}
+
+	private String authorization(String id, UserRole role) {
+		return "Bearer " + tokens.createAccessToken(id, role);
 	}
 
 	private long startAnalysis() {
