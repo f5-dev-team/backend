@@ -75,8 +75,8 @@ jobs:
           DB_URL: jdbc:mysql://127.0.0.1:3306/scholarship?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true
           DB_USERNAME: root
           DB_PASSWORD: root
-          AWS_ACCESS_KEY: dummy-access-key-for-ci
-          AWS_SECRET_KEY: dummy-secret-key-for-ci
+          AWS_ACCESS_KEY_ID: dummy-access-key-for-ci
+          AWS_SECRET_ACCESS_KEY: dummy-secret-key-for-ci
           AWS_S3_BUCKET: dummy-bucket
           # JWT 시크릿 등 필수 환경변수가 더 있다면 아래에 추가
         run: |

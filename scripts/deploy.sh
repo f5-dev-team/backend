@@ -21,7 +21,7 @@ if [ ! -f "$JAR_NAME" ]; then
 fi
 
 echo "> 현재 구동중인 애플리케이션 pid 확인"
-CURRENT_PID=$(pgrep -fo "java -jar.*scholarship-backend")
+CURRENT_PID=$(pgrep -fo "java .*-jar.*scholarship-backend")
 
 # 변수를 큰따옴표로 감싸서 여러 PID가 들어오더라도 문법 에러가 나지 않도록 방지
 if [ -z "$CURRENT_PID" ]; then
@@ -53,7 +53,7 @@ echo "> 새 애플리케이션 배포 시작"
 echo "> JAR Name: $JAR_NAME"
 
 # 애플리케이션 실행 (prod 프로필 적용)
-nohup java -jar -Dspring.profiles.active=prod $JAR_NAME > $REPOSITORY/nohup.out 2>&1 &
+nohup java -Dspring.profiles.active=prod -jar $JAR_NAME > $REPOSITORY/nohup.out 2>&1 &
 
 NEW_PID=$!
 echo "> 애플리케이션 기동 대기 및 헬스 체크 시작..."
