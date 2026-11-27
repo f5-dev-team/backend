@@ -3,6 +3,7 @@ package com.f5.scholarship_backend.domain.user.service;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import com.f5.scholarship_backend.domain.user.dto.UserCreateRequest;
 import com.f5.scholarship_backend.domain.user.dto.UserCreateResponse;
@@ -34,6 +35,9 @@ public class UserService {
 
 	@Transactional
 	public UserCreateResponse create(UserCreateRequest request) {
+		if (request.password().getBytes(StandardCharsets.UTF_8).length > 72) {
+			throw new BusinessException(ErrorCode.VALIDATION_ERROR);
+		}
 		String normalizedEmail = GachonEmailPolicy.normalizeAndValidate(request.email());
 		if (userRepository.existsByEmail(normalizedEmail)) {
 			throw new BusinessException(ErrorCode.EMAIL_ALREADY_EXISTS);

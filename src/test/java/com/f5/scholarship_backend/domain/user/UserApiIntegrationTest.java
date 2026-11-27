@@ -88,4 +88,25 @@ class UserApiIntegrationTest {
 				.andExpect(jsonPath("$.code").value("EMAIL_ALREADY_EXISTS"));
 		assertThat(userRepository.count()).isEqualTo(1);
 	}
+
+	@Test
+	void accepts72Utf8BytePasswordAndRejects73BytesAsValidationError() throws Exception {
+		String base = """
+				{"email":"student@gachon.ac.kr","password":"%s",
+				"nickname":"가천새내기","serviceTermsAgreed":true,"privacyPolicyAgreed":true}
+				""";
+		String password72 = "A1!" + "a".repeat(69);
+		assertThat(password72.getBytes(java.nio.charset.StandardCharsets.UTF_8)).hasSize(72);
+		mockMvc.perform(post(USERS_URL).contentType(MediaType.APPLICATION_JSON)
+						.content(base.formatted(password72)))
+				.andExpect(status().isCreated());
+
+		String password73 = "A1!" + "a".repeat(70);
+		assertThat(password73.getBytes(java.nio.charset.StandardCharsets.UTF_8)).hasSize(73);
+		mockMvc.perform(post(USERS_URL).contentType(MediaType.APPLICATION_JSON)
+						.content(base.formatted(password73)))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+				.andExpect(jsonPath("$.errors[0].field").value("password"));
+	}
 }

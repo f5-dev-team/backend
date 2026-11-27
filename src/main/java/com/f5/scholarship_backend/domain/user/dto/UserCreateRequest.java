@@ -7,6 +7,7 @@ import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
+import com.f5.scholarship_backend.domain.user.validation.MaxUtf8Bytes;
 
 @Schema(description = "회원가입 요청")
 public class UserCreateRequest {
@@ -14,10 +15,11 @@ public class UserCreateRequest {
 	@NotBlank(message = "이메일은 필수입니다.")
 	private String email;
 
-	@Schema(description = "영문, 숫자, 특수문자를 포함한 8자 이상 비밀번호")
+	@Schema(description = "영문, 숫자, 특수문자를 포함한 8자 이상, UTF-8 기준 72바이트 이하 비밀번호")
 	@NotBlank(message = "비밀번호는 필수입니다.")
 	@Pattern(regexp = "(?s)(?=.*[A-Za-z])(?=.*[0-9])(?=.*[^A-Za-z0-9\\s]).{8,}",
 			message = "비밀번호는 영문, 숫자, 특수문자를 포함해 8자 이상이어야 합니다.")
+	@MaxUtf8Bytes(max = 72, message = "비밀번호는 UTF-8 기준 72바이트 이하여야 합니다.")
 	private String password;
 
 	@Schema(description = "공백 없는 2~20자 닉네임", example = "가천새내기")

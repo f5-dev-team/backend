@@ -176,6 +176,20 @@ class UserControllerTest {
 	}
 
 	@Test
+	void rejectsPasswordsOver72Utf8BytesWithoutCallingServiceOrExposingPassword() throws Exception {
+		for (String password : new String[] {"A1!" + "a".repeat(70), "A1!" + "가".repeat(24)}) {
+			String body = VALID_BODY.replace("Secure-Pass1!", password);
+			var result = mockMvc.perform(post(USERS_URL).contentType(MediaType.APPLICATION_JSON).content(body))
+					.andExpect(status().isBadRequest())
+					.andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+					.andExpect(jsonPath("$.errors[0].field").value("password"))
+					.andReturn();
+			assertThat(result.getResponse().getContentAsString()).doesNotContain(password);
+		}
+		verifyNoInteractions(userService);
+	}
+
+	@Test
 	void rejectsUnknownSignupQueryParameter() throws Exception {
 		mockMvc.perform(post(USERS_URL).param("unexpected", "value")
 						.contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
