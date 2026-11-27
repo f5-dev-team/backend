@@ -17,8 +17,10 @@ import org.springframework.test.web.servlet.ResultActions;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -27,6 +29,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("test")
 class SecurityInfrastructureTest {
 	private static final String PROTECTED_ADMIN_URL = "/api/v1/admin/scholarships";
+	private static final String STUDENT_PROFILE_URL = "/api/v1/users/me/student-profile";
+	private static final String ALLOWED_ORIGIN = "http://localhost:3000";
 
 	@Autowired
 	private MockMvc mockMvc;
@@ -133,6 +137,36 @@ class SecurityInfrastructureTest {
 						.header("Authorization", "Bearer " + tokenProvider.createAccessToken("201", UserRole.ADMIN)))
 				.andExpect(status().isNotFound())
 				.andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
+	}
+
+	@Test
+	void allowsPreflightForProtectedApiWithoutJwtAuthentication() throws Exception {
+		mockMvc.perform(options(STUDENT_PROFILE_URL)
+						.header("Origin", ALLOWED_ORIGIN)
+						.header("Access-Control-Request-Method", "GET")
+						.header("Access-Control-Request-Headers", "Authorization,Content-Type"))
+				.andExpect(status().isOk())
+				.andExpect(header().string("Access-Control-Allow-Origin", ALLOWED_ORIGIN))
+				.andExpect(header().string("Access-Control-Allow-Methods", containsString("GET")));
+	}
+
+	@Test
+	void rejectsPreflightFromUnconfiguredOrigin() throws Exception {
+		mockMvc.perform(options(STUDENT_PROFILE_URL)
+						.header("Origin", "https://untrusted.example")
+						.header("Access-Control-Request-Method", "GET"))
+				.andExpect(status().isForbidden())
+				.andExpect(header().doesNotExist("Access-Control-Allow-Origin"));
+	}
+
+	@Test
+	void exposesCorsHeadersOnAuthenticatedApiResponse() throws Exception {
+		mockMvc.perform(get(STUDENT_PROFILE_URL)
+						.header("Origin", ALLOWED_ORIGIN)
+						.header("Authorization", "Bearer " + tokenProvider.createAccessToken("101", UserRole.USER)))
+				.andExpect(header().string("Access-Control-Allow-Origin", ALLOWED_ORIGIN))
+				.andExpect(header().string("Access-Control-Expose-Headers", containsString("X-Request-Id")))
+				.andExpect(header().string("Access-Control-Expose-Headers", containsString("Location")));
 	}
 
 	private void assertUnauthorized(ResultActions result) throws Exception {

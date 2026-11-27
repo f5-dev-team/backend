@@ -1,8 +1,13 @@
 package com.f5.scholarship_backend.global.security;
 
+import java.util.List;
+
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -12,8 +17,23 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 @Configuration
-@EnableConfigurationProperties(JwtProperties.class)
+@EnableConfigurationProperties({JwtProperties.class, CorsProperties.class})
 public class SecurityConfig {
+	@Bean
+	CorsConfigurationSource corsConfigurationSource(CorsProperties corsProperties) {
+		CorsConfiguration configuration = new CorsConfiguration();
+		configuration.setAllowedOrigins(corsProperties.allowedOrigins());
+		configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+		configuration.setAllowedHeaders(List.of(
+				"Authorization", "Content-Type", "Accept", "X-Request-Id"));
+		configuration.setExposedHeaders(List.of("X-Request-Id", "Location", "WWW-Authenticate"));
+		configuration.setAllowCredentials(false);
+
+		UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+		source.registerCorsConfiguration("/**", configuration);
+		return source;
+	}
+
 	@Bean
 	PasswordEncoder passwordEncoder() {
 		return new BCryptPasswordEncoder();
@@ -23,9 +43,11 @@ public class SecurityConfig {
 	SecurityFilterChain securityFilterChain(HttpSecurity http,
 			JwtTokenProvider tokenProvider,
 			JwtAuthenticationEntryPoint authenticationEntryPoint,
-			JwtAccessDeniedHandler accessDeniedHandler) throws Exception {
+			JwtAccessDeniedHandler accessDeniedHandler,
+			CorsConfigurationSource corsConfigurationSource) throws Exception {
 		http
 				.csrf(csrf -> csrf.disable())
+				.cors(cors -> cors.configurationSource(corsConfigurationSource))
 				.formLogin(form -> form.disable())
 				.httpBasic(basic -> basic.disable())
 				.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
