@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Predicate;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import com.f5.scholarship_backend.domain.analysis.enums.ApplicationPeriodStatus;
 import com.f5.scholarship_backend.domain.matching.enums.ConditionReason;
@@ -24,8 +25,18 @@ import tools.jackson.databind.json.JsonMapper;
 @Component
 class AnalysisResultEvaluator {
 	private static final BigDecimal GPA_MAX = new BigDecimal("4.5");
-	private static final Pattern GPA_45 = Pattern.compile("(?<![0-9.])4\\.5\\s*(?:점\\s*)?(?:만점|기준)");
-	private static final Pattern GPA_43 = Pattern.compile("(?<![0-9.])4\\.3(?![0-9])");
+	private static final String DECIMAL = "[0-9]+(?:\\.[0-9]+)?";
+	private static final Pattern GPA_SCALE = Pattern.compile(
+			"(?<![0-9.])(" + DECIMAL + ")\\s*(?:점\\s*)?(?:만점(?:\\s*기준)?|기준)"
+			+ "|만점\\s*[:：]?\\s*(" + DECIMAL + ")(?![0-9.])");
+	private static final String THRESHOLD = "(?<threshold>" + DECIMAL + ")\\s*(?:점\\s*)?"
+			+ "(?<relation>이상|이하|(?:와|과)?\\s*(?:동일|일치))";
+	private static final Pattern THRESHOLD_BEFORE_SCALE = Pattern.compile(
+			"(?<![0-9.])" + THRESHOLD + "\\s*(?:\\(|\\[)?\\s*\\z");
+	private static final Pattern SCALE_END = Pattern.compile("\\s*(?:[)\\].,;]|\\z)");
+	private static final Pattern THRESHOLD_AFTER_SCALE = Pattern.compile(
+			"\\s*(?:[:：,)]\\s*)?(?:(?:평점평균|평균\\s*평점|전체\\s*평점|평점|GPA)\\s*)?"
+			+ THRESHOLD);
 
 	private final NumericConditionMatcher matcher;
 	private final EligibilityEvaluator evaluator;
@@ -70,7 +81,7 @@ class AnalysisResultEvaluator {
 		JsonNode expected = json.readTree(condition.getExpectedValue());
 		return switch (condition.getFieldName()) {
 			case "grade" -> compareNumber(condition, actual, expected, AnalysisResultEvaluator::isGrade);
-			case "cumulativeGpa", "previousSemesterGpa" -> hasConfirmedGpaScale(condition)
+			case "cumulativeGpa", "previousSemesterGpa" -> hasConfirmedGpaScale(condition, expected)
 					? compareNumber(condition, actual, expected, AnalysisResultEvaluator::isGpa)
 					: review(condition, ConditionReason.UNSUPPORTED_RULE);
 			case "enrollmentStatus" -> compareExact(condition, actual, expected,
@@ -134,9 +145,41 @@ class AnalysisResultEvaluator {
 		return value.isNumber() && value.decimalValue().signum() >= 0 && value.decimalValue().compareTo(GPA_MAX) <= 0;
 	}
 
-	private static boolean hasConfirmedGpaScale(ScholarshipCondition condition) {
+	private static boolean hasConfirmedGpaScale(ScholarshipCondition condition, JsonNode expected) {
 		String quote = condition.getSourceQuote();
-		return quote != null && GPA_45.matcher(quote).find() && !GPA_43.matcher(quote).find();
+		if (quote == null || !isGpa(expected)) {
+			return false;
+		}
+
+		boolean confirmed = false;
+		var scales = GPA_SCALE.matcher(quote);
+		while (scales.find()) {
+			String scale = scales.group(1) == null ? scales.group(2) : scales.group(1);
+			if (new BigDecimal(scale).compareTo(GPA_MAX) != 0) {
+				return false;
+			}
+
+			var before = THRESHOLD_BEFORE_SCALE.matcher(quote.substring(0, scales.start()));
+			String tail = quote.substring(scales.end());
+			var after = THRESHOLD_AFTER_SCALE.matcher(tail);
+			confirmed |= (before.find() && SCALE_END.matcher(tail).lookingAt() && matchesThreshold(before, condition, expected))
+					|| (after.lookingAt() && matchesThreshold(after, condition, expected));
+		}
+		return confirmed;
+	}
+
+	private static boolean matchesThreshold(Matcher threshold, ScholarshipCondition condition,
+			JsonNode expected) {
+		if (new BigDecimal(threshold.group("threshold")).compareTo(expected.decimalValue()) != 0) {
+			return false;
+		}
+		String relation = threshold.group("relation");
+		return switch (condition.getOperator()) {
+			case "GTE" -> "이상".equals(relation);
+			case "LTE" -> "이하".equals(relation);
+			case "EQ" -> relation.endsWith("동일") || relation.endsWith("일치");
+			default -> false;
+		};
 	}
 
 	private static boolean isEnumName(JsonNode value, Enum<?>[] options) {

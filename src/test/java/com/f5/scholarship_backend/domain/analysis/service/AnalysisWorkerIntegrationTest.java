@@ -5,11 +5,13 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 import com.f5.scholarship_backend.domain.analysis.enums.AnalysisStatus;
 import com.f5.scholarship_backend.domain.scholarship.entity.Scholarship;
 import com.f5.scholarship_backend.domain.scholarship.entity.ScholarshipVersion;
@@ -23,8 +25,11 @@ import com.f5.scholarship_backend.domain.user.repository.UserRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import tools.jackson.databind.json.JsonMapper;
@@ -36,6 +41,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 		"student-profile.department-max-grades.CS=4"
 })
 @ActiveProfiles("test")
+@ExtendWith(OutputCaptureExtension.class)
 class AnalysisWorkerIntegrationTest {
 	private static final String PROFILE = """
 			{"departmentCode":"CS","grade":3,"enrollmentStatus":"ENROLLED","cumulativeGpa":3.30,
@@ -158,6 +164,62 @@ class AnalysisWorkerIntegrationTest {
 		assertThat(jdbc.queryForObject("select failure_message from analyses where analysis_id = ?", String.class, id))
 				.isNotBlank();
 	}
+
+	@Test
+	void logsFailureOriginWithoutIncludingSnapshotOrExceptionMessages(CapturedOutput output) {
+		long scholarship = addScholarship("logs", "READY");
+		long invalid = startAnalysis();
+		long missing = startAnalysis();
+		jdbc.update("update analyses set profile_snapshot = ? FORMAT JSON where analysis_id = ?",
+				"[\"SYNTHETIC_PROFILE_CONTENT\"]", invalid);
+
+		assertThat(worker.runNext()).isTrue();
+		jdbc.update("delete from scholarship_versions where scholarship_id = ?", scholarship);
+		assertThat(worker.runNext()).isTrue();
+
+		var invalidStatus = analyses.findStatus(userId, Long.toString(invalid));
+		var missingStatus = analyses.findStatus(userId, Long.toString(missing));
+		assertThat(invalidStatus.status()).isEqualTo(AnalysisStatus.FAILED);
+		assertThat(missingStatus.status()).isEqualTo(AnalysisStatus.FAILED);
+		assertThat(invalidStatus.failure()).isEqualTo(missingStatus.failure());
+		assertThat(output.getAll()).doesNotContain("SYNTHETIC_PROFILE_CONTENT",
+				"Invalid analysis profile snapshot", "Analysis target version is missing");
+		var origins = Pattern.compile("exceptionType=java\\.lang\\.IllegalStateException, origin="
+				+ "[^\\r\\n]*AnalysisExecution\\.execute\\(AnalysisExecution\\.java:(\\d+)\\)")
+				.matcher(output.getAll()).results().map(match -> match.group(1)).toList();
+		assertThat(origins).hasSize(2).doesNotHaveDuplicates();
+	}
+
+	@Test
+	void requiresAnUnambiguousScaleLinkedToTheExpectedGpaAndOperator() {
+		List<GpaCase> cases = List.of(
+				new GpaCase("conflicting", "GTE", "3.0",
+						"4.0점 만점 기준 3.0 이상. 성적표에 4.5점 만점 환산 점수도 기재.", "NEEDS_REVIEW"),
+				new GpaCase("four-point-threshold", "GTE", "4.0", "4.0 이상(4.5 만점)", "INELIGIBLE"),
+				new GpaCase("four-three-threshold", "GTE", "4.3", "4.3 이상(4.5 만점)", "INELIGIBLE"),
+				new GpaCase("prefix", "GTE", "3.30", "4.5점 만점 기준 평점 3.3 이상", "ELIGIBLE"),
+				new GpaCase("upper-bound", "LTE", "3.30", "3.3 이하(4.5 만점)", "ELIGIBLE"),
+				new GpaCase("unrelated-note", "GTE", "3.0", "평점 3.0 이상. 성적표에 4.5점 만점 환산 점수 기재.", "NEEDS_REVIEW"),
+				new GpaCase("parenthesized-note", "GTE", "3.0",
+						"평점 3.0 이상(4.5점 만점 환산 점수도 기재)", "NEEDS_REVIEW"),
+				new GpaCase("mismatched-value", "GTE", "3.0", "3.5 이상(4.5 만점)", "NEEDS_REVIEW"),
+				new GpaCase("mismatched-operator", "GTE", "3.0", "3.0 이하(4.5 만점)", "NEEDS_REVIEW"),
+				new GpaCase("other-scale", "GTE", "3.0", "3.0 이상(5점 만점)", "NEEDS_REVIEW"));
+		var targets = new LinkedHashMap<Long, GpaCase>();
+		for (var testCase : cases) {
+			long scholarship = addScholarship(testCase.key(), "READY");
+			addCondition(scholarship, 1, "cumulativeGpa", testCase.operator(), testCase.threshold(), testCase.quote(), true);
+			targets.put(scholarship, testCase);
+		}
+
+		long id = startAnalysis();
+		assertThat(worker.runNext()).isTrue();
+		assertThat(analyses.findStatus(userId, Long.toString(id)).processedCount()).isEqualTo(cases.size());
+		targets.forEach((scholarship, testCase) -> assertThat(queryResult(id, scholarship, "eligibility_status"))
+				.as(testCase.key()).isEqualTo(testCase.expectedStatus()));
+	}
+
+	private record GpaCase(String key, String operator, String threshold, String quote, String expectedStatus) { }
 
 	@Test
 	void marksAbandonedClaimsFailedAndLeavesRecentClaimsRunning() {

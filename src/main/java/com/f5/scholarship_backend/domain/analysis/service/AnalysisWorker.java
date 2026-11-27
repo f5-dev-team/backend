@@ -1,5 +1,6 @@
 package com.f5.scholarship_backend.domain.analysis.service;
 
+import java.util.Arrays;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -47,7 +48,11 @@ class AnalysisWorker {
 		try {
 			execution.execute(id);
 		} catch (RuntimeException failure) {
-			LOG.error("분석 실행 실패 analysisId={}, exceptionType={}", id, failure.getClass().getName());
+			var origin = Arrays.stream(failure.getStackTrace())
+					.filter(frame -> frame.getClassName().startsWith(AnalysisWorker.class.getPackageName() + "."))
+					.findFirst().map(StackTraceElement::toString).orElse("unknown");
+			LOG.error("분석 실행 실패 analysisId={}, exceptionType={}, origin={}",
+					id, failure.getClass().getName(), origin);
 			execution.markFailed(id);
 		}
 		return true;
