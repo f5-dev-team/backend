@@ -9,6 +9,9 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import com.f5.scholarship_backend.domain.analysis.dto.AnalysisCreateResponse;
+import com.f5.scholarship_backend.domain.analysis.dto.AnalysisEvidenceResponse;
+import com.f5.scholarship_backend.domain.analysis.dto.AnalysisEvidenceResponse.Document;
+import com.f5.scholarship_backend.domain.analysis.dto.AnalysisEvidenceResponse.Evidence;
 import com.f5.scholarship_backend.domain.analysis.dto.AnalysisRecommendationsResponse;
 import com.f5.scholarship_backend.domain.analysis.dto.AnalysisRecommendationsResponse.Recommendation;
 import com.f5.scholarship_backend.domain.analysis.dto.ConditionResult;
@@ -19,9 +22,12 @@ import com.f5.scholarship_backend.domain.analysis.entity.AnalysisItem;
 import com.f5.scholarship_backend.domain.analysis.entity.AnalysisJob;
 import com.f5.scholarship_backend.domain.analysis.enums.AnalysisExclusionReason;
 import com.f5.scholarship_backend.domain.analysis.enums.AnalysisStatus;
+import com.f5.scholarship_backend.domain.analysis.enums.EvidenceStatus;
+import com.f5.scholarship_backend.domain.analysis.repository.AnalysisEvidenceRepository;
 import com.f5.scholarship_backend.domain.analysis.repository.AnalysisItemRepository;
 import com.f5.scholarship_backend.domain.analysis.repository.AnalysisItemRepository.RecommendationRow;
 import com.f5.scholarship_backend.domain.analysis.repository.AnalysisJobRepository;
+import com.f5.scholarship_backend.domain.document.repository.VersionDocumentRepository;
 import com.f5.scholarship_backend.domain.matching.enums.EligibilityStatus;
 import com.f5.scholarship_backend.domain.scholarship.repository.ScholarshipRepository;
 import com.f5.scholarship_backend.domain.scholarship.repository.ScholarshipRepository.AnalysisCandidate;
@@ -44,15 +50,20 @@ public class AnalysisService {
 	private final StudentProfileService profiles;
 	private final AnalysisJobRepository jobs;
 	private final AnalysisItemRepository items;
+	private final AnalysisEvidenceRepository evidence;
+	private final VersionDocumentRepository versionDocuments;
 	private final ScholarshipRepository scholarships;
 	private final JsonMapper json;
 	private final Clock clock;
 
 	public AnalysisService(StudentProfileService profiles, AnalysisJobRepository jobs,
-			AnalysisItemRepository items, ScholarshipRepository scholarships, JsonMapper json, Clock clock) {
+			AnalysisItemRepository items, AnalysisEvidenceRepository evidence, VersionDocumentRepository versionDocuments,
+			ScholarshipRepository scholarships, JsonMapper json, Clock clock) {
 		this.profiles = profiles;
 		this.jobs = jobs;
 		this.items = items;
+		this.evidence = evidence;
+		this.versionDocuments = versionDocuments;
 		this.scholarships = scholarships;
 		this.json = json;
 		this.clock = clock;
@@ -108,13 +119,7 @@ public class AnalysisService {
 		if (page < 0 || size < 1 || size > 100) {
 			throw new BusinessException(ErrorCode.VALIDATION_ERROR);
 		}
-		var job = findOwnedJob(userId, analysisId);
-		switch (job.getStatus()) {
-			case QUEUED, RUNNING -> throw new BusinessException(ErrorCode.ANALYSIS_NOT_COMPLETED);
-			case FAILED -> throw new BusinessException(ErrorCode.ANALYSIS_FAILED);
-			case COMPLETED -> { }
-		}
-
+		var job = findCompletedOwnedJob(userId, analysisId);
 		long total = items.countRecommendations(job.getId(), eligibilityStatus);
 		long totalPages = total == 0 ? 0 : (total - 1) / size + 1;
 		List<Recommendation> recommendations = page >= totalPages ? List.of()
@@ -122,6 +127,52 @@ public class AnalysisService {
 						.map(this::toRecommendation).toList();
 		return new AnalysisRecommendationsResponse(job.getId().toString(), job.getProfileVersion(),
 				recommendations, page, size, total, totalPages);
+	}
+
+	@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+	public AnalysisEvidenceResponse findEvidence(String userId, String analysisId, String scholarshipId) {
+		long id = positiveId(scholarshipId, ErrorCode.RESOURCE_NOT_FOUND);
+		var job = findCompletedOwnedJob(userId, analysisId);
+		var target = items.findEvidenceTarget(job.getId(), id)
+				.orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
+		int version = target.getScholarshipVersion();
+		var documents = versionDocuments.findDocumentMetadata(id, version).stream()
+				.map(document -> new Document(document.getDocumentId().toString(), document.getFileName(),
+						document.getFileType()))
+				.toList();
+
+		EvidenceStatus status = target.getEvidenceStatus();
+		List<Evidence> results = status == EvidenceStatus.UNAVAILABLE ? List.of()
+				: evidence.findByAnalysisIdAndScholarshipIdAndScholarshipVersionOrderByIdAsc(job.getId(), id, version)
+						.stream().map(item -> new Evidence(item.getConditionId(),
+								item.getDocumentId() == null ? null : item.getDocumentId().toString(),
+								item.getQuote(), item.getExplanation(), item.getPageNumber(), item.getSectionLabel(),
+								item.getSourceUrl()))
+						.toList();
+
+		String message = target.getEvidenceMessage();
+		if (results.isEmpty() && status != EvidenceStatus.UNAVAILABLE) {
+			status = EvidenceStatus.UNAVAILABLE;
+			message = null;
+		}
+		if (message == null || message.isBlank()) {
+			message = switch (status) {
+				case AVAILABLE -> null;
+				case PARTIAL -> "일부 판정 근거만 제공할 수 있습니다.";
+				case UNAVAILABLE -> "상세 원문 근거는 현재 제공할 수 없습니다.";
+			};
+		}
+		return new AnalysisEvidenceResponse(job.getId().toString(), Long.toString(id), version, status,
+				target.getSourceUrl(), documents, results, message);
+	}
+
+	private AnalysisJob findCompletedOwnedJob(String userId, String analysisId) {
+		var job = findOwnedJob(userId, analysisId);
+		return switch (job.getStatus()) {
+			case QUEUED, RUNNING -> throw new BusinessException(ErrorCode.ANALYSIS_NOT_COMPLETED);
+			case FAILED -> throw new BusinessException(ErrorCode.ANALYSIS_FAILED);
+			case COMPLETED -> job;
+		};
 	}
 
 	private AnalysisJob findOwnedJob(String userId, String analysisId) {

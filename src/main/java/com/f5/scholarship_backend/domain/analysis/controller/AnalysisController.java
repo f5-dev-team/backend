@@ -4,6 +4,7 @@ import java.security.Principal;
 import com.f5.scholarship_backend.domain.analysis.controller.docs.AnalysisControllerDocs;
 import com.f5.scholarship_backend.domain.analysis.dto.AnalysisCreateRequest;
 import com.f5.scholarship_backend.domain.analysis.dto.AnalysisCreateResponse;
+import com.f5.scholarship_backend.domain.analysis.dto.AnalysisEvidenceResponse;
 import com.f5.scholarship_backend.domain.analysis.dto.AnalysisRecommendationsResponse;
 import com.f5.scholarship_backend.domain.analysis.dto.AnalysisStatusResponse;
 import com.f5.scholarship_backend.domain.analysis.service.AnalysisService;
@@ -70,6 +71,16 @@ public class AnalysisController implements AnalysisControllerDocs {
 			@RequestParam(required = false) EligibilityStatus eligibilityStatus,
 			Principal principal, HttpServletRequest servletRequest) {
 		var result = analysisService.findRecommendations(requireUserId(principal), analysisId, page, size, eligibilityStatus);
+		return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+				.body(ApiResponse.of(result, RequestIdFilter.getRequestId(servletRequest)));
+	}
+
+	@Override
+	@GetMapping("/{analysisId}/recommendations/{scholarshipId}/evidence")
+	public ResponseEntity<ApiResponse<AnalysisEvidenceResponse>> getRecommendationEvidence(
+			@PathVariable String analysisId, @PathVariable String scholarshipId,
+			Principal principal, HttpServletRequest servletRequest) {
+		var result = analysisService.findEvidence(requireUserId(principal), analysisId, scholarshipId);
 		return ResponseEntity.ok().cacheControl(CacheControl.noStore())
 				.body(ApiResponse.of(result, RequestIdFilter.getRequestId(servletRequest)));
 	}
