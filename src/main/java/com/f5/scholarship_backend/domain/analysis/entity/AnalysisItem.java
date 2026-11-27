@@ -4,6 +4,7 @@ import java.io.Serializable;
 import java.time.Instant;
 import com.f5.scholarship_backend.domain.analysis.enums.AnalysisExclusionReason;
 import com.f5.scholarship_backend.domain.analysis.enums.ApplicationPeriodStatus;
+import com.f5.scholarship_backend.domain.analysis.enums.EvidenceStatus;
 import com.f5.scholarship_backend.domain.matching.enums.EligibilityStatus;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -36,7 +37,9 @@ public class AnalysisItem implements Persistable<AnalysisItem.Key> {
 	@Column(name = "unmet_conditions") private String unmetConditions;
 	@JdbcTypeCode(SqlTypes.JSON)
 	@Column(name = "unresolved_conditions") private String unresolvedConditions;
-	@Column(name = "evidence_status", length = 16) private String evidenceStatus;
+	@Enumerated(EnumType.STRING)
+	@JdbcTypeCode(SqlTypes.VARCHAR)
+	@Column(name = "evidence_status", length = 16) private EvidenceStatus evidenceStatus;
 	@Column(name = "evidence_message", columnDefinition = "TEXT") private String evidenceMessage;
 	@Column(name = "result_completed_at") private Instant resultCompletedAt;
 
@@ -80,7 +83,7 @@ public class AnalysisItem implements Persistable<AnalysisItem.Key> {
 		this.reasons = reasons;
 		unmetConditions = unmet;
 		unresolvedConditions = unresolved;
-		evidenceStatus = "UNAVAILABLE";
+		evidenceStatus = EvidenceStatus.UNAVAILABLE;
 		evidenceMessage = "상세 원문 근거는 현재 제공할 수 없습니다.";
 		resultCompletedAt = now;
 	}

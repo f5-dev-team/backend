@@ -270,6 +270,8 @@ class CoreApiIntegrationTest {
 				.andExpect(jsonPath("$.paths['/api/v1/analyses'].post.operationId").value("createAnalysis"))
 				.andExpect(jsonPath("$.paths['/api/v1/analyses/{analysisId}'].get.operationId").value("getAnalysisStatus"))
 				.andExpect(jsonPath("$.paths['/api/v1/analyses/{analysisId}/recommendations'].get.operationId").value("getRecommendations"))
+				.andExpect(jsonPath("$.paths['/api/v1/analyses/{analysisId}/recommendations/{scholarshipId}/evidence'].get.operationId")
+						.value("getRecommendationEvidence"))
 				.andExpect(jsonPath("$.paths['/api/v1/analyses/{analysisId}/recommendations'].get.responses['409'].content['application/problem+json']").exists())
 				.andExpect(jsonPath("$.paths['/api/v1/analyses/{analysisId}'].get.responses['404'].content['application/problem+json']").exists())
 				.andExpect(jsonPath("$.paths['/api/v1/analyses'].post.responses['202'].headers.Location").exists())

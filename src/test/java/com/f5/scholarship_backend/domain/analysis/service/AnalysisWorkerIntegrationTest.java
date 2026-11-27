@@ -1,5 +1,6 @@
 package com.f5.scholarship_backend.domain.analysis.service;
 
+import java.net.URI;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -13,6 +14,12 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import com.f5.scholarship_backend.domain.analysis.enums.AnalysisStatus;
+import com.f5.scholarship_backend.domain.document.entity.ScholarshipDocument;
+import com.f5.scholarship_backend.domain.document.entity.VersionDocument;
+import com.f5.scholarship_backend.domain.document.enums.OriginalFileType;
+import com.f5.scholarship_backend.domain.document.model.StoredAttachment;
+import com.f5.scholarship_backend.domain.document.repository.ScholarshipDocumentRepository;
+import com.f5.scholarship_backend.domain.document.repository.VersionDocumentRepository;
 import com.f5.scholarship_backend.domain.scholarship.entity.Scholarship;
 import com.f5.scholarship_backend.domain.scholarship.entity.ScholarshipVersion;
 import com.f5.scholarship_backend.domain.scholarship.repository.ScholarshipRepository;
@@ -66,6 +73,8 @@ class AnalysisWorkerIntegrationTest {
 	@Autowired private ScholarshipRepository scholarships;
 	@Autowired private ScholarshipVersionRepository versions;
 	@Autowired private UserRepository users;
+	@Autowired private ScholarshipDocumentRepository documents;
+	@Autowired private VersionDocumentRepository versionDocuments;
 	@Autowired private JdbcTemplate jdbc;
 	@Autowired private JsonMapper json;
 	@Autowired private Clock clock;
@@ -81,7 +90,8 @@ class AnalysisWorkerIntegrationTest {
 
 	@AfterEach
 	void cleanFixtures() {
-		for (String table : List.of("analysis_items", "analyses", "scholarship_conditions", "scholarship_versions",
+		for (String table : List.of("analysis_evidence", "analysis_items", "analyses", "version_documents",
+				"scholarship_documents", "scholarship_conditions", "scholarship_versions",
 				"scholarships", "student_profiles", "users")) {
 			jdbc.update("delete from " + table);
 		}
@@ -346,6 +356,145 @@ class AnalysisWorkerIntegrationTest {
 				.andExpect(jsonPath("$.data.totalElements").value(0));
 	}
 
+	@Test
+	void returnsPinnedSourcesAndDocumentsWhenEvidenceIsUnavailable() throws Exception {
+		long scholarship = addScholarship("no-evidence", "READY");
+		long originalDocument = addDocument(scholarship, 1, "기존 원본.pdf", OriginalFileType.PDF, "a");
+		long id = startAnalysis();
+		addVersion(scholarship, 2);
+		addDocument(scholarship, 2, "수정 원본.hwp", OriginalFileType.HWP, "b");
+		jdbc.update("update scholarship_versions set source_url = ? where scholarship_id = ? and version = 2",
+				"https://example.test/new-notice", scholarship);
+		assertThat(worker.runNext()).isTrue();
+
+		mockMvc.perform(get(evidenceUrl(id, scholarship)).header("Authorization", authorization(userId, UserRole.USER)))
+				.andExpect(status().isOk())
+				.andExpect(header().string("Cache-Control", "no-store"))
+				.andExpect(jsonPath("$.meta.requestId").isString())
+				.andExpect(jsonPath("$.data.analysisId").value(Long.toString(id)))
+				.andExpect(jsonPath("$.data.scholarshipId").value(Long.toString(scholarship)))
+				.andExpect(jsonPath("$.data.scholarshipVersion").value(1))
+				.andExpect(jsonPath("$.data.sourceUrl").value("https://example.test/notice"))
+				.andExpect(jsonPath("$.data.evidenceStatus").value("UNAVAILABLE"))
+				.andExpect(jsonPath("$.data.message").isNotEmpty())
+				.andExpect(jsonPath("$.data.items").isEmpty())
+				.andExpect(jsonPath("$.data.documents[*].documentId", contains(Long.toString(originalDocument))))
+				.andExpect(jsonPath("$.data.documents[0].fileName").value("기존 원본.pdf"))
+				.andExpect(jsonPath("$.data.documents[0].fileType").value("PDF"))
+				.andExpect(jsonPath("$.data.documents[0].bucket").doesNotExist())
+				.andExpect(jsonPath("$.data.documents[0].key").doesNotExist());
+	}
+
+	@Test
+	void returnsOnlyStoredEvidenceForTheRequestedAnalysisAndScholarship() throws Exception {
+		long scholarship = addScholarship("stored-evidence", "READY");
+		long document = addDocument(scholarship, 1, "지원안내.pdf", OriginalFileType.PDF, "a");
+		String condition = addCondition(scholarship, 1, "grade", "EQ", "3", "", true);
+		long partial = addScholarship("partial-evidence", "READY");
+		String partialCondition = addCondition(partial, 1, "other", "TEXT", null, "", true);
+		long id = startAnalysis();
+		long otherAnalysis = startAnalysis();
+		assertThat(worker.runNext()).isTrue();
+		assertThat(worker.runNext()).isTrue();
+
+		addEvidence(id, scholarship, condition, document, 2, "지원 자격", "3학년 학생");
+		addEvidence(id, scholarship, condition, null, null, null, "게시글의 지원 대상");
+		addEvidence(otherAnalysis, scholarship, condition, document, 5, null, "다른 분석 인용");
+		addEvidence(id, partial, partialCondition, null, null, null, "추가 서류 안내");
+		setEvidenceStatus(id, scholarship, "AVAILABLE", null);
+		setEvidenceStatus(id, partial, "PARTIAL", "추천서 조건의 근거는 확인되지 않았습니다.");
+		var bearer = authorization(userId, UserRole.USER);
+		mockMvc.perform(get(evidenceUrl(id, scholarship)).header("Authorization", bearer))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.evidenceStatus").value("AVAILABLE"))
+				.andExpect(jsonPath("$.data.message").value(nullValue()))
+				.andExpect(jsonPath("$.data.items[*].quote", contains("3학년 학생", "게시글의 지원 대상")))
+				.andExpect(jsonPath("$.data.items[0].conditionId").value(condition))
+				.andExpect(jsonPath("$.data.items[0].documentId").value(Long.toString(document)))
+				.andExpect(jsonPath("$.data.items[0].page").value(2))
+				.andExpect(jsonPath("$.data.items[0].section").value("지원 자격"))
+				.andExpect(jsonPath("$.data.items[0].explanation").value("판정에 사용한 조건입니다."))
+				.andExpect(jsonPath("$.data.items[0].sourceUrl").value("https://example.test/evidence"))
+				.andExpect(jsonPath("$.data.items[1].documentId").value(nullValue()))
+				.andExpect(jsonPath("$.data.items[1].page").value(nullValue()));
+		mockMvc.perform(get(evidenceUrl(id, partial)).header("Authorization", bearer))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.evidenceStatus").value("PARTIAL"))
+				.andExpect(jsonPath("$.data.message").value("추천서 조건의 근거는 확인되지 않았습니다."))
+				.andExpect(jsonPath("$.data.items[*].quote", contains("추가 서류 안내")))
+				.andExpect(jsonPath("$.data.documents").isEmpty());
+
+		setEvidenceStatus(otherAnalysis, partial, "AVAILABLE", null);
+		mockMvc.perform(get(evidenceUrl(otherAnalysis, partial)).header("Authorization", bearer))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.evidenceStatus").value("UNAVAILABLE"))
+				.andExpect(jsonPath("$.data.items").isEmpty())
+				.andExpect(jsonPath("$.data.message").isNotEmpty());
+	}
+
+	@Test
+	void onlyAllowsEvidenceForOwnedCompletedIncludedScholarships() throws Exception {
+		long scholarship = addScholarship("authorized-evidence", "READY");
+		long excluded = addScholarship("excluded-evidence", "PENDING");
+		long id = startAnalysis();
+		var url = evidenceUrl(id, scholarship);
+		var bearer = authorization(userId, UserRole.USER);
+		var other = users.save(User.create("other-" + UUID.randomUUID() + "@example.test", "test-hash",
+				UserRole.USER, "테스트", clock.instant(), false));
+
+		mockMvc.perform(get(url)).andExpect(status().isUnauthorized());
+		mockMvc.perform(get(url).header("Authorization", authorization(userId, UserRole.ADMIN)))
+				.andExpect(status().isForbidden());
+		mockMvc.perform(get(url).header("Authorization", authorization(other.getId().toString(), UserRole.USER)))
+				.andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
+		mockMvc.perform(get(url).header("Authorization", bearer))
+				.andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("ANALYSIS_NOT_COMPLETED"));
+
+		assertThat(execution.claimNext()).contains(id);
+		mockMvc.perform(get(url).header("Authorization", bearer))
+				.andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("ANALYSIS_NOT_COMPLETED"));
+		execution.markFailed(id);
+		mockMvc.perform(get(url).header("Authorization", bearer))
+				.andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("ANALYSIS_FAILED"));
+
+		long completed = startAnalysis();
+		assertThat(worker.runNext()).isTrue();
+		mockMvc.perform(get(evidenceUrl(completed, excluded)).header("Authorization", bearer))
+				.andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
+		mockMvc.perform(get(evidenceUrl(completed, Long.MAX_VALUE)).header("Authorization", bearer))
+				.andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
+		mockMvc.perform(get(evidenceUrl(Long.MAX_VALUE, scholarship)).header("Authorization", bearer))
+				.andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
+	}
+
+	private long addDocument(long scholarship, int version, String name, OriginalFileType type, String digestChar) {
+		var attachment = new StoredAttachment(name, URI.create("https://example.test/file"), type, digestChar.repeat(64),
+				128, "test-bucket", "private/" + digestChar, null);
+		long id = documents.save(new ScholarshipDocument(scholarship, attachment, clock.instant())).getId();
+		versionDocuments.save(new VersionDocument(scholarship, version, id));
+		return id;
+	}
+
+	private void addEvidence(long analysis, long scholarship, String condition, Long document, Integer page,
+			String section, String quote) {
+		jdbc.update("""
+				insert into analysis_evidence
+				    (analysis_id, scholarship_id, scholarship_version, condition_id, document_id, quote,
+				     explanation, page_number, section_label, source_url)
+				values (?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
+				""", analysis, scholarship, condition, document, quote, "판정에 사용한 조건입니다.", page, section,
+				"https://example.test/evidence");
+	}
+
+	private void setEvidenceStatus(long analysis, long scholarship, String status, String message) {
+		jdbc.update("update analysis_items set evidence_status = ?, evidence_message = ? where analysis_id = ? and scholarship_id = ?",
+				status, message, analysis, scholarship);
+	}
+
+	private static String evidenceUrl(long analysis, long scholarship) {
+		return recommendationsUrl(analysis) + "/" + scholarship + "/evidence";
+	}
+
 	private static String recommendationsUrl(long analysisId) {
 		return "/api/v1/analyses/" + analysisId + "/recommendations";
 	}
@@ -374,14 +523,16 @@ class AnalysisWorkerIntegrationTest {
 				""", utc(now.minusSeconds(60)), utc(now.plusSeconds(3600)), id, version);
 	}
 
-	private void addCondition(long id, int version, String field, String operator, String value,
+	private String addCondition(long id, int version, String field, String operator, String value,
 			String quote, boolean required) {
+		String conditionId = UUID.randomUUID().toString();
 		jdbc.update("""
 				insert into scholarship_conditions
 				    (scholarship_id, version, condition_id, field_name, operator, expected_value,
 				     description, is_required, source_quote)
 				values (?, ?, ?, ?, ?, ? FORMAT JSON, ?, ?, ?)
-				""", id, version, UUID.randomUUID().toString(), field, operator, value, "합성 자격조건", required, quote);
+				""", id, version, conditionId, field, operator, value, "합성 자격조건", required, quote);
+		return conditionId;
 	}
 
 	private String queryResult(long id, long scholarshipId, String column) {
