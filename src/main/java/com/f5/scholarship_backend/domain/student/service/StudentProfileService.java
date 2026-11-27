@@ -16,6 +16,7 @@ import com.f5.scholarship_backend.global.exception.BusinessException;
 import com.f5.scholarship_backend.global.exception.ErrorCode;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -59,6 +60,13 @@ public class StudentProfileService {
 	public Optional<StudentProfileResponse> findForAnalysis(String userId) {
 		long accountId = accountId(userId);
 		requireStudent(profiles.findAccountRole(accountId));
+		return profiles.findById(accountId).map(StudentProfile::toResponse);
+	}
+
+	/** 프로필 저장과 같은 계정 행 잠금을 접수 트랜잭션 종료까지 유지한다. */
+	@Transactional(propagation = Propagation.MANDATORY)
+	public Optional<StudentProfileResponse> findForAnalysisWithAccountLock(long accountId) {
+		requireStudent(profiles.lockAccountRole(accountId));
 		return profiles.findById(accountId).map(StudentProfile::toResponse);
 	}
 
