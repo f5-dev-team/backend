@@ -21,13 +21,15 @@ public interface StudentProfileControllerDocs {
 	@SecurityRequirement(name = "bearerAuth")
 	@ApiResponses({
 			@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "기존 정보 교체", useReturnTypeSchema = true),
-			@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "최초 저장", useReturnTypeSchema = true)
+			@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "최초 저장", useReturnTypeSchema = true),
+			@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "동시 저장 충돌")
 	})
 	ResponseEntity<ApiResponse<StudentProfileResponse>> saveStudentProfile(
 			StudentProfileSaveRequest request, @Parameter(hidden = true) Principal principal,
 			@Parameter(hidden = true) HttpServletRequest servletRequest);
 
-	@Operation(operationId = "getStudentProfile", summary = "본인 학생 정보 조회")
+	@Operation(operationId = "getStudentProfile", summary = "본인 학생 정보 조회",
+			description = "프로필이 없으면 404를 반환하며, 응답에는 Cache-Control: no-store를 적용합니다.")
 	@SecurityRequirement(name = "bearerAuth")
 	@ApiResponses({
 			@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", useReturnTypeSchema = true),
