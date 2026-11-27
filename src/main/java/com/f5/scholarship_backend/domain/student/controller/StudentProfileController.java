@@ -48,7 +48,7 @@ public class StudentProfileController implements StudentProfileControllerDocs {
 	public ResponseEntity<ApiResponse<StudentProfileResponse>> getStudentProfile(
 			Principal principal, HttpServletRequest servletRequest) {
 		String userId = authenticatedUserId(principal, servletRequest);
-		var profile = studentProfileService.findForAnalysis(userId)
+		var profile = studentProfileService.findForUser(userId)
 				.orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
 		return ResponseEntity.ok().cacheControl(CacheControl.noStore())
 				.body(ApiResponse.of(profile, RequestIdFilter.getRequestId(servletRequest)));

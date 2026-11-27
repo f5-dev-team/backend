@@ -1,39 +1,53 @@
 package com.f5.scholarship_backend.domain.student.entity;
 
 import java.time.Instant;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import com.f5.scholarship_backend.domain.student.dto.StudentProfileResponse;
+import com.f5.scholarship_backend.domain.user.entity.User;
 import jakarta.persistence.Column;
 import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.MapsId;
+import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 
 @Entity
 @Table(name = "student_profiles")
 public class StudentProfile {
+	private static final ZoneId KOREA = ZoneId.of("Asia/Seoul");
+
 	@Id
-	@Column(name = "user_id")
+	@Column(name = "user_id", nullable = false)
 	private Long userId;
+
+	@MapsId
+	@OneToOne(fetch = FetchType.LAZY, optional = false)
+	@JoinColumn(name = "user_id", nullable = false)
+	private User user;
 
 	@Embedded
 	private StudentProfileData data;
 
-	@Column(nullable = false)
-	private long version;
+	@Column(name = "version", nullable = false)
+	private int version;
 
-	@Column(nullable = false)
+	@Column(name = "updated_at", nullable = false)
 	private Instant updatedAt;
 
 	protected StudentProfile() {
 	}
 
-	public StudentProfile(long userId, StudentProfileData data, Instant savedAt) {
-		this.userId = userId;
-		this.data = data;
-		this.version = 1;
-		this.updatedAt = savedAt.truncatedTo(ChronoUnit.MICROS);
+	public static StudentProfile create(User user, StudentProfileData data, Instant savedAt) {
+		StudentProfile profile = new StudentProfile();
+		profile.user = user;
+		profile.data = data;
+		profile.version = 1;
+		profile.updatedAt = savedAt.truncatedTo(ChronoUnit.MICROS);
+		return profile;
 	}
 
 	public void replace(StudentProfileData newData, Instant savedAt) {
@@ -46,7 +60,7 @@ public class StudentProfile {
 	}
 
 	public StudentProfileResponse toResponse() {
-		return storedData().toResponse(version, updatedAt.atOffset(ZoneOffset.UTC));
+		return storedData().toResponse(version, updatedAt.atZone(KOREA).toOffsetDateTime());
 	}
 
 	private StudentProfileData storedData() {

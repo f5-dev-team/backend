@@ -124,6 +124,18 @@ class CoreApiControllerTest {
 				.andExpect(jsonPath("$.data.grade").value(nullValue()));
 	}
 
+	@Test
+	void getsOwnProfileWithNoStoreAndExplicitNullFields() throws Exception {
+		when(studentProfileService.findForUser("101")).thenReturn(java.util.Optional.of(profileResponse()));
+		mockMvc.perform(get(PROFILE_URL).principal(() -> "101"))
+				.andExpect(status().isOk())
+				.andExpect(header().string("Cache-Control", "no-store"))
+				.andExpect(jsonPath("$.data", aMapWithSize(13)))
+				.andExpect(jsonPath("$.data.gender").value(nullValue()))
+				.andExpect(jsonPath("$.data.version").value(7));
+		verify(studentProfileService).findForUser("101");
+	}
+
 	@ParameterizedTest
 	@ValueSource(strings = {"departmentCode", "grade", "enrollmentStatus", "cumulativeGpa",
 			"previousSemesterGpa", "incomeAssessment", "specialEligibility", "volunteerMinutes", "birthDate",
