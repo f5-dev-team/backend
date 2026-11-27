@@ -23,6 +23,7 @@ public class AnalysisJob {
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false, length = 16) private AnalysisStatus status;
 	@Column(name = "failure_code", length = 64) private String failureCode;
+	@Column(name = "failure_message", columnDefinition = "TEXT") private String failureMessage;
 	@Column(name = "created_at", nullable = false) private Instant createdAt;
 	@Column(name = "started_at") private Instant startedAt;
 	@Column(name = "completed_at") private Instant completedAt;
@@ -33,5 +34,13 @@ public class AnalysisJob {
 		this.profileSnapshot = profileSnapshot;
 		this.createdAt = createdAt;
 		this.status = AnalysisStatus.QUEUED;
+	}
+
+	public void complete(Instant now) {
+		if (status != AnalysisStatus.RUNNING) {
+			throw new IllegalStateException("Only a running analysis can be completed");
+		}
+		status = AnalysisStatus.COMPLETED;
+		completedAt = now.isBefore(startedAt) ? startedAt : now;
 	}
 }
