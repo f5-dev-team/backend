@@ -101,11 +101,11 @@ class SecurityInfrastructureTest {
 	}
 
 	@Test
-	void publicSessionEndpointIsNotRejectedForTamperedBearerToken() throws Exception {
-		mockMvc.perform(post("/api/v1/sessions")
-						.header("Authorization", "Bearer malformed-token"))
-				.andExpect(status().isNotFound())
-				.andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
+	void publicSessionEndpointPassesTamperedBearerTokenToRequestValidation() throws Exception {
+		String token = tokenProvider.createAccessToken("101", UserRole.USER) + "tampered";
+		mockMvc.perform(post("/api/v1/sessions").header("Authorization", "Bearer " + token))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
 	}
 
 	@Test
