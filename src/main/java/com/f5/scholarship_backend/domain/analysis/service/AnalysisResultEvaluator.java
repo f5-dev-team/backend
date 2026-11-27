@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import com.f5.scholarship_backend.domain.analysis.dto.ConditionResult;
 import com.f5.scholarship_backend.domain.analysis.enums.ApplicationPeriodStatus;
 import com.f5.scholarship_backend.domain.matching.enums.ConditionReason;
 import com.f5.scholarship_backend.domain.matching.enums.ConditionStatus;
@@ -197,7 +198,7 @@ class AnalysisResultEvaluator {
 	private static ConditionResult conditionResult(ScholarshipCondition condition, JsonNode actual,
 			ConditionEvaluation evaluation) {
 		String field = condition.getFieldName();
-		Object actualValue = actual.isNumber() ? actual.decimalValue() : actual.isString() ? actual.asString() : null;
+		JsonNode actualValue = actual.isNumber() || actual.isString() ? actual : null;
 		String unit = evaluation.gap() == null ? null : "grade".equals(field) ? "학년" : "학점";
 		String message = switch (evaluation.reason()) {
 			case CONDITION_NOT_MET -> "저장된 학생 정보가 공고의 조건을 충족하지 않습니다.";
@@ -232,6 +233,4 @@ class AnalysisResultEvaluator {
 	record Result(EligibilityStatus status, ApplicationPeriodStatus period, List<String> reasons,
 			List<ConditionResult> unmet, List<ConditionResult> unresolved) { }
 
-	record ConditionResult(String conditionId, String field, boolean required, Object actualValue,
-			String expectedDescription, BigDecimal gap, String unit, ConditionReason reasonCode, String message) { }
 }

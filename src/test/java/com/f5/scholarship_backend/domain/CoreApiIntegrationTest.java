@@ -269,6 +269,8 @@ class CoreApiIntegrationTest {
 				.andExpect(jsonPath("$.paths['/api/v1/users/me/student-profile'].put.responses", allOf(hasKey("200"), hasKey("201"))))
 				.andExpect(jsonPath("$.paths['/api/v1/analyses'].post.operationId").value("createAnalysis"))
 				.andExpect(jsonPath("$.paths['/api/v1/analyses/{analysisId}'].get.operationId").value("getAnalysisStatus"))
+				.andExpect(jsonPath("$.paths['/api/v1/analyses/{analysisId}/recommendations'].get.operationId").value("getRecommendations"))
+				.andExpect(jsonPath("$.paths['/api/v1/analyses/{analysisId}/recommendations'].get.responses['409'].content['application/problem+json']").exists())
 				.andExpect(jsonPath("$.paths['/api/v1/analyses/{analysisId}'].get.responses['404'].content['application/problem+json']").exists())
 				.andExpect(jsonPath("$.paths['/api/v1/analyses'].post.responses['202'].headers.Location").exists())
 				.andExpect(jsonPath("$.paths['/api/v1/analyses'].post.responses['400'].content['application/problem+json']").exists())

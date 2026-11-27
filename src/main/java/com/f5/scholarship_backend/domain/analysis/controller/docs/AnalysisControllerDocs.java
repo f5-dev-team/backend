@@ -3,7 +3,9 @@ package com.f5.scholarship_backend.domain.analysis.controller.docs;
 import java.security.Principal;
 import com.f5.scholarship_backend.domain.analysis.dto.AnalysisCreateRequest;
 import com.f5.scholarship_backend.domain.analysis.dto.AnalysisCreateResponse;
+import com.f5.scholarship_backend.domain.analysis.dto.AnalysisRecommendationsResponse;
 import com.f5.scholarship_backend.domain.analysis.dto.AnalysisStatusResponse;
+import com.f5.scholarship_backend.domain.matching.enums.EligibilityStatus;
 import com.f5.scholarship_backend.global.response.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -46,5 +48,32 @@ public interface AnalysisControllerDocs {
 	})
 	ResponseEntity<ApiResponse<AnalysisStatusResponse>> getAnalysisStatus(
 			@Parameter(description = "본인이 접수한 분석 ID", example = "5001") String analysisId,
+			@Parameter(hidden = true) Principal principal, @Parameter(hidden = true) HttpServletRequest servletRequest);
+
+	@Operation(operationId = "getRecommendations", summary = "장학금 추천 결과 조회",
+			description = "완료된 본인 분석의 공고별 판정 결과를 장학금 ID 내림차순으로 조회합니다. "
+					+ "판정 상태를 생략하면 적격·부적격·확인 필요를 모두 반환합니다.")
+	@SecurityRequirement(name = "bearerAuth")
+	@ApiResponses({
+			@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "추천 결과 조회",
+					useReturnTypeSchema = true),
+			@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "FORBIDDEN",
+					content = @Content(mediaType = "application/problem+json",
+							schema = @Schema(ref = "#/components/schemas/ApiProblem"))),
+			@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "RESOURCE_NOT_FOUND",
+					content = @Content(mediaType = "application/problem+json",
+							schema = @Schema(ref = "#/components/schemas/ApiProblem"))),
+			@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409",
+					description = "ANALYSIS_NOT_COMPLETED: 분석 대기·진행 중 또는 ANALYSIS_FAILED: 분석 실패",
+					content = @Content(mediaType = "application/problem+json",
+							schema = @Schema(ref = "#/components/schemas/ApiProblem")))
+	})
+	ResponseEntity<ApiResponse<AnalysisRecommendationsResponse>> getRecommendations(
+			@Parameter(description = "본인의 분석 ID", example = "5001") String analysisId,
+			@Parameter(description = "0부터 시작하는 페이지 번호", schema = @Schema(defaultValue = "0", minimum = "0"))
+			int page,
+			@Parameter(description = "페이지당 결과 수", schema = @Schema(defaultValue = "20", minimum = "1", maximum = "100"))
+			int size,
+			@Parameter(description = "판정 상태 필터. 생략하면 전체 조회") EligibilityStatus eligibilityStatus,
 			@Parameter(hidden = true) Principal principal, @Parameter(hidden = true) HttpServletRequest servletRequest);
 }
