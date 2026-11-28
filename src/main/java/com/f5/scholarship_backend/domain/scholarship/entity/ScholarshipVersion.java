@@ -6,6 +6,8 @@ import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "scholarship_versions")
@@ -27,6 +29,8 @@ public class ScholarshipVersion {
 	@Column(name = "changed_by_user_id") private Long changedByUserId;
 	@Column(name = "created_at", nullable = false) private Instant createdAt;
 	@Column(nullable = false, length = 16) private String origin;
+	@JdbcTypeCode(SqlTypes.TINYINT)
+	@Column(name = "requirements_complete") private Boolean requirementsComplete;
 
 	/** 확정 날짜를 추측하지 않고 새 크롤링 원문 버전을 추가한다. */
 	public ScholarshipVersion(Long scholarshipId, int version, String title, String sourceUrl,
@@ -39,6 +43,10 @@ public class ScholarshipVersion {
 		this.sourceAttachments = sourceAttachments;
 		this.createdAt = now;
 		this.origin = "CRAWLER";
+	}
+
+	public void recordConditionExtraction(boolean complete) {
+		requirementsComplete = complete;
 	}
 
 	/** 복합 기본키는 JPA 직렬화와 값 동등성을 지원한다. */

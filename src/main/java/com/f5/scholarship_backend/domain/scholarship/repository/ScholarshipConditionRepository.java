@@ -6,6 +6,9 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.Repository;
 
 public interface ScholarshipConditionRepository extends Repository<ScholarshipCondition, ScholarshipCondition.Key> {
+	boolean existsByScholarshipIdAndVersion(long scholarshipId, int version);
+	<S extends ScholarshipCondition> List<S> saveAll(Iterable<S> conditions);
+
 	@Query("""
 			select c from ScholarshipCondition c join AnalysisItem i
 			    on i.scholarshipId = c.scholarshipId and i.scholarshipVersion = c.version

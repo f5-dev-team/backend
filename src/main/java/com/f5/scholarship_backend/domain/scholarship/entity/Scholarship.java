@@ -22,6 +22,9 @@ public class Scholarship {
 	@Lob @Column(name = "processing_error_message") private String processingErrorMessage;
 	@Column(name = "collected_at", nullable = false) private Instant collectedAt;
 	@Column(name = "status_updated_at", nullable = false) private Instant statusUpdatedAt;
+	@Column(name = "document_analysis_id", length = 128) private String documentAnalysisId;
+	@Column(name = "document_analysis_version") private Integer documentAnalysisVersion;
+	@Column(name = "document_analysis_next_at") private Instant documentAnalysisNextAt;
 
 	/** 원문 수집용 main 식별 행을 생성하며 적격 분석 대상으로 즉시 전환하지 않는다. */
 	public Scholarship(String postKey, Instant now) {
@@ -34,9 +37,35 @@ public class Scholarship {
 
 	/** 기존 오류 상태를 해제하고 문서 처리 대기 상태로 전환한다. */
 	public void markPending(Instant now) {
-		processingStatus = "PENDING";
-		processingErrorCode = null;
-		processingErrorMessage = null;
+		changeStatus("PENDING", null, null, now);
+	}
+
+	public void startDocumentAnalysis(int version, Instant now, Instant reserveUntil) {
+		changeStatus("PROCESSING", null, null, now);
+		documentAnalysisVersion = version;
+		documentAnalysisNextAt = reserveUntil;
+	}
+
+	public void scheduleDocumentAnalysis(String analysisId, Instant nextAt) {
+		documentAnalysisId = analysisId;
+		documentAnalysisNextAt = nextAt;
+	}
+
+	public void finishDocumentAnalysis(Instant now) {
+		changeStatus("READY", null, null, now);
+	}
+
+	public void failDocumentAnalysis(String code, String message, Instant now) {
+		changeStatus("FAILED", code, message, now);
+	}
+
+	private void changeStatus(String status, String code, String message, Instant now) {
+		processingStatus = status;
+		processingErrorCode = code;
+		processingErrorMessage = message;
 		statusUpdatedAt = now;
+		documentAnalysisId = null;
+		documentAnalysisVersion = null;
+		documentAnalysisNextAt = null;
 	}
 }

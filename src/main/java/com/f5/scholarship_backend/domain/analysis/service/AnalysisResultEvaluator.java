@@ -49,7 +49,7 @@ class AnalysisResultEvaluator {
 		this.json = json;
 	}
 
-	Result evaluate(JsonNode profile, List<ScholarshipCondition> conditions, Instant acceptedAt,
+	Result evaluate(JsonNode profile, List<ScholarshipCondition> conditions, boolean requirementsComplete, Instant acceptedAt,
 			Instant startAt, Instant endAt) {
 		var evaluations = new ArrayList<ConditionEvaluation>();
 		var unmet = new ArrayList<ConditionResult>();
@@ -65,8 +65,7 @@ class AnalysisResultEvaluator {
 			}
 		}
 
-		// Only READY versions reach the worker. The shared evaluator handles an empty condition list.
-		var finalResult = evaluator.evaluate(evaluations, true);
+		var finalResult = evaluator.evaluate(evaluations, requirementsComplete);
 		for (ConditionReason reason : finalResult.reviewReasons()) {
 			unresolved.add(new ConditionResult(null, "other", true, null, "공고 자격조건 확인",
 					null, null, reason, "저장된 자격조건을 확인할 수 없습니다."));
@@ -152,12 +151,20 @@ class AnalysisResultEvaluator {
 			return false;
 		}
 
+		BigDecimal declaredScale = condition.getGpaScale();
+		if (declaredScale != null && declaredScale.compareTo(GPA_MAX) != 0) {
+			return false;
+		}
+
 		boolean confirmed = false;
 		var scales = GPA_SCALE.matcher(quote);
 		while (scales.find()) {
 			String scale = scales.group(1) == null ? scales.group(2) : scales.group(1);
 			if (new BigDecimal(scale).compareTo(GPA_MAX) != 0) {
-				return false;
+				if (declaredScale == null) {
+					return false;
+				}
+				continue;
 			}
 
 			var before = THRESHOLD_BEFORE_SCALE.matcher(quote.substring(0, scales.start()));

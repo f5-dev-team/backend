@@ -13,7 +13,7 @@ import com.f5.scholarship_backend.domain.document.client.DocumentException;
 import com.f5.scholarship_backend.domain.document.storage.*;
 
 @Configuration
-@EnableConfigurationProperties(FileProperties.class)
+@EnableConfigurationProperties({FileProperties.class, DocumentAnalysisProperties.class})
 public class DocumentConfig {
     /** 인증 키를 코드에 넣지 않고 SDK 기본 인증 체인으로 로컬·서버 권한을 찾는다. */
     @Bean(destroyMethod = "close")
