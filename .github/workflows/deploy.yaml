@@ -43,11 +43,11 @@ jobs:
         with:
           host: ${{ secrets.PRIVATE_HOST }}
           username: ${{ secrets.PRIVATE_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          key: ${{ secrets.PRIVATE_SSH_KEY }}
           fingerprint: ${{ secrets.PRIVATE_FINGERPRINT }}
           proxy_host: ${{ secrets.BASTION_HOST }}
           proxy_username: ${{ secrets.BASTION_USER }}
-          proxy_key: ${{ secrets.SSH_PRIVATE_KEY }}
+          proxy_key: ${{ secrets.BASTION_SSH_KEY }}
           proxy_fingerprint: ${{ secrets.BASTION_FINGERPRINT }}
           source: "deploy-staging/*"
           target: "~/scholarship-deploy"
@@ -63,11 +63,11 @@ jobs:
         with:
           host: ${{ secrets.PRIVATE_HOST }}
           username: ${{ secrets.PRIVATE_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          key: ${{ secrets.PRIVATE_SSH_KEY }}
           fingerprint: ${{ secrets.PRIVATE_FINGERPRINT }}
           proxy_host: ${{ secrets.BASTION_HOST }}
           proxy_username: ${{ secrets.BASTION_USER }}
-          proxy_key: ${{ secrets.SSH_PRIVATE_KEY }}
+          proxy_key: ${{ secrets.BASTION_SSH_KEY }}
           proxy_fingerprint: ${{ secrets.BASTION_FINGERPRINT }}
           script: |
             chmod +x ~/scholarship-deploy/deploy.sh

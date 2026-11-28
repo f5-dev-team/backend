@@ -20,6 +20,21 @@ if [ ! -f "$JAR_NAME" ]; then
     exit 1
 fi
 
+# 환경변수 파일 확인 및 로드 (기존 프로세스 종료 전 사전 검증)
+if [ -f "$REPOSITORY/.env" ]; then
+    set -a
+    source "$REPOSITORY/.env"
+    ENV_LOAD_STATUS=$?
+    set +a
+    if [ "$ENV_LOAD_STATUS" -ne 0 ]; then
+        echo "> Error: $REPOSITORY/.env 파일 로드에 실패했습니다. 배포를 중단합니다."
+        exit 1
+    fi
+else
+    echo "> Error: $REPOSITORY/.env 파일을 찾을 수 없습니다. 배포를 중단합니다."
+    exit 1
+fi
+
 echo "> 현재 구동중인 애플리케이션 pid 확인"
 CURRENT_PID=$(pgrep -fo "java .*-jar.*scholarship-backend")
 
