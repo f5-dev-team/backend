@@ -18,6 +18,7 @@ import tools.jackson.databind.json.JsonMapper;
 @Component
 public class DocumentAnalysisClient {
 	public static final String INVALID_RESPONSE = "INVALID_AI_RESPONSE";
+	public static final String REQUEST_REJECTED = "AI_REQUEST_REJECTED";
 	public static final String EXTERNAL_FAILURE = "DEPENDENCY_UNAVAILABLE";
 	public static final String TIMEOUT = "AI_REQUEST_TIMEOUT";
 	private static final String ANALYSES_PATH = "/api/ai/document-analyses";
@@ -57,7 +58,13 @@ public class DocumentAnalysisClient {
 		try {
 			var response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
 			if (response.statusCode() != expectedStatus) {
-				throw new DocumentException(EXTERNAL_FAILURE);
+				String code = switch (response.statusCode()) {
+					case 400, 422 -> REQUEST_REJECTED;
+					case 408 -> TIMEOUT;
+					case 429, 500, 502, 503, 504 -> EXTERNAL_FAILURE;
+					default -> INVALID_RESPONSE;
+				};
+				throw new DocumentException(code);
 			}
 			var result = json.readValue(response.body(), responseType);
 			if (result == null) {

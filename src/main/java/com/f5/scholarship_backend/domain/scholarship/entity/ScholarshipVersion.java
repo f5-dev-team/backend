@@ -45,6 +45,10 @@ public class ScholarshipVersion {
 		this.origin = "CRAWLER";
 	}
 
+	public void recordSourceAttachments(String attachments) {
+		sourceAttachments = attachments;
+	}
+
 	public void recordConditionExtraction(boolean complete) {
 		requirementsComplete = complete;
 	}

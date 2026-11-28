@@ -16,7 +16,7 @@ public interface VersionDocumentRepository extends JpaRepository<VersionDocument
 	List<DocumentMetadata> findDocumentMetadata(long scholarshipId, int version);
 
 	@Query("""
-			select d.id as documentId, d.bucket as bucket, d.key as objectKey
+			select d.id as documentId, d.bucket as bucket, d.key as objectKey, d.sourceFileUrl as sourceUrl, d.sha256 as sha256
 			from VersionDocument link join ScholarshipDocument d
 			    on d.id = link.documentId and d.scholarshipId = link.scholarshipId
 			where link.scholarshipId = :scholarshipId and link.version = :version
@@ -28,6 +28,8 @@ public interface VersionDocumentRepository extends JpaRepository<VersionDocument
 		Long getDocumentId();
 		String getBucket();
 		String getObjectKey();
+		String getSourceUrl();
+		String getSha256();
 	}
 
 	interface DocumentMetadata {

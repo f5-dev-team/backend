@@ -1,5 +1,6 @@
 package com.f5.scholarship_backend.domain.document.service;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -73,10 +74,17 @@ class DocumentAnalysisRequirements {
 		boolean gpa = "cumulativeGpa".equals(field) || "previousSemesterGpa".equals(field);
 		var scale = requirement.gpaScale();
 		if (!valid || (scale != null && (!gpa || "TEXT".equals(requirement.operator()) || scale.signum() <= 0
-				|| scale.compareTo(new java.math.BigDecimal("99.99")) > 0 || scale.stripTrailingZeros().scale() > 2))
-				|| (gpa && scale != null && expected.isNumber() && expected.decimalValue().compareTo(scale) > 0)) {
+				|| scale.compareTo(new BigDecimal("99.99")) > 0 || scale.stripTrailingZeros().scale() > 2
+				|| exceedsScale(expected, scale)))) {
 			throw new DocumentException(INVALID_RESPONSE);
 		}
+	}
+
+	private static boolean exceedsScale(JsonNode value, BigDecimal scale) {
+		if (value.isArray()) {
+			return value.valueStream().anyMatch(element -> element.isNumber() && element.decimalValue().compareTo(scale) > 0);
+		}
+		return value.isNumber() && value.decimalValue().compareTo(scale) > 0;
 	}
 
 	private static boolean validScalar(JsonNode value, boolean canBeNumber, boolean canBeText) {

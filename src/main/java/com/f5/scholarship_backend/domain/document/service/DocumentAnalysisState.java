@@ -14,6 +14,7 @@ import com.f5.scholarship_backend.domain.document.config.DocumentAnalysisPropert
 import com.f5.scholarship_backend.domain.document.dto.DocumentAnalysisRequest;
 import com.f5.scholarship_backend.domain.document.dto.DocumentAnalysisResult;
 import com.f5.scholarship_backend.domain.document.repository.VersionDocumentRepository;
+import com.f5.scholarship_backend.domain.document.repository.VersionDocumentRepository.DocumentAnalysisSource;
 import com.f5.scholarship_backend.domain.scholarship.entity.Scholarship;
 import com.f5.scholarship_backend.domain.scholarship.entity.ScholarshipVersion;
 import com.f5.scholarship_backend.domain.scholarship.repository.ScholarshipConditionRepository;
@@ -25,7 +26,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+import static com.f5.scholarship_backend.domain.document.client.DocumentAnalysisClient.EXTERNAL_FAILURE;
+import static com.f5.scholarship_backend.domain.document.client.DocumentAnalysisClient.INVALID_RESPONSE;
+import static com.f5.scholarship_backend.domain.document.client.DocumentAnalysisClient.REQUEST_REJECTED;
 import static com.f5.scholarship_backend.domain.document.client.DocumentAnalysisClient.TIMEOUT;
 
 @Service
@@ -157,16 +162,7 @@ class DocumentAnalysisState {
 	private DocumentAnalysisRequest buildRequest(ScholarshipVersion version) {
 		long id = version.getScholarshipId();
 		var files = documents.findDocumentAnalysisSources(id, version.getVersion());
-		if (version.getSourceAttachments() != null) {
-			try {
-				var sourceLinks = json.readTree(version.getSourceAttachments());
-				if (!sourceLinks.isArray() || sourceLinks.valueStream().distinct().count() > files.size()) {
-					throw DocumentException.download();
-				}
-			} catch (JacksonException invalidLinks) {
-				throw DocumentException.download();
-			}
-		}
+		validateSourceAttachments(version, files);
 		if (files.stream().anyMatch(file -> !Objects.equals(properties.sourceBucket(), file.getBucket()))) {
 			throw DocumentException.storage();
 		}
@@ -180,10 +176,67 @@ class DocumentAnalysisState {
 		return new DocumentAnalysisRequest(Long.toString(id), version.getVersion(), text.isBlank() ? null : text, inputs);
 	}
 
+	private void validateSourceAttachments(ScholarshipVersion version, List<DocumentAnalysisSource> files) {
+		String metadata = version.getSourceAttachments();
+		if (metadata == null) {
+			return;
+		}
+		try {
+			var attachments = json.readTree(metadata);
+			if (!attachments.isArray()) {
+				throw DocumentException.download();
+			}
+			var unmatched = attachments.valueStream().filter(attachment -> !hasLinkedDocument(attachment, files)).toList();
+			if (!unmatched.isEmpty() && !matchesImportedAttachments(version, unmatched, files)) {
+				throw DocumentException.download();
+			}
+		} catch (JacksonException invalidLinks) {
+			throw DocumentException.download();
+		}
+	}
+
+	private static boolean hasLinkedDocument(JsonNode attachment, List<DocumentAnalysisSource> files) {
+		var url = attachment.path("url");
+		if (!url.isString() || url.asString().isBlank()) {
+			return false;
+		}
+		var documentId = attachment.get("documentId");
+		if (documentId == null) {
+			// Older versions kept the URL only. Match against a document linked to this version.
+			return files.stream().filter(file -> url.asString().equals(file.getSourceUrl())).limit(2).count() == 1;
+		}
+		return documentId.isIntegralNumber() && documentId.canConvertToLong()
+				&& files.stream().anyMatch(file -> file.getDocumentId().equals(documentId.asLong()));
+	}
+
+	private boolean matchesImportedAttachments(ScholarshipVersion version, List<JsonNode> unmatched,
+			List<DocumentAnalysisSource> files) {
+		if (unmatched.stream().anyMatch(attachment -> attachment.has("documentId")
+				|| !attachment.path("url").isString() || attachment.path("url").asString().isBlank()
+				|| !attachment.path("name").isString())) {
+			return false;
+		}
+		// A legacy alias can be resolved only from the payload of this exact imported version.
+		var imported = crawlStates.findById(version.getScholarshipId()).filter(crawl ->
+				crawl.getLastImportedVersion() == version.getVersion() && crawl.getLastSourceFingerprint() != null
+						&& crawl.getLastSourceFingerprint().equals(crawl.getCandidateFingerprint())
+						&& crawl.getCandidatePayload() != null);
+		if (imported.isEmpty()) {
+			return false;
+		}
+		var stored = json.readTree(imported.orElseThrow().getCandidatePayload()).path("files");
+		var linkedHashes = files.stream().map(DocumentAnalysisSource::getSha256).collect(Collectors.toSet());
+		return stored.isArray() && unmatched.stream().allMatch(attachment -> stored.valueStream().anyMatch(file ->
+				attachment.path("url").equals(file.path("sourceUrl")) && attachment.path("name").equals(file.path("name"))
+						&& file.path("sha256").isString() && linkedHashes.contains(file.path("sha256").asString())));
+	}
+
 	private void fail(Scholarship scholarship, String code, Instant now) {
 		String message = switch (code) {
 			case TIMEOUT -> "문서 분석 응답 시간을 초과했습니다.";
-			case "DEPENDENCY_UNAVAILABLE" -> "문서 분석 서버에 연결할 수 없습니다.";
+			case EXTERNAL_FAILURE -> "문서 분석 서버를 사용할 수 없습니다.";
+			case REQUEST_REJECTED -> "문서 분석 서버가 요청을 거절했습니다.";
+			case INVALID_RESPONSE -> "문서 분석 서버의 응답을 확인할 수 없습니다.";
 			case "DOCUMENT_FETCH_FAILED", "STORAGE_FAILED" -> "문서 분석에 필요한 공고 원본을 확인해 주세요.";
 			default -> "공고 자격조건을 확인할 수 없습니다.";
 		};
