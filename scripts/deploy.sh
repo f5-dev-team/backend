@@ -24,7 +24,12 @@ fi
 if [ -f "$REPOSITORY/.env" ]; then
     set -a
     source "$REPOSITORY/.env"
+    ENV_LOAD_STATUS=$?
     set +a
+    if [ "$ENV_LOAD_STATUS" -ne 0 ]; then
+        echo "> Error: $REPOSITORY/.env 파일 로드에 실패했습니다. 배포를 중단합니다."
+        exit 1
+    fi
 else
     echo "> Error: $REPOSITORY/.env 파일을 찾을 수 없습니다. 배포를 중단합니다."
     exit 1
