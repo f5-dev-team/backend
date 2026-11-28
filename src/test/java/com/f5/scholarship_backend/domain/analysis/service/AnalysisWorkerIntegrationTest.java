@@ -495,6 +495,24 @@ class AnalysisWorkerIntegrationTest {
 		return recommendationsUrl(analysis) + "/" + scholarship + "/evidence";
 	}
 
+	@Test
+	void evaluatesExplicitGpaScaleWithoutTreatingIncompleteExtractionAsEligible() {
+		long complete = addScholarship("complete-extraction", "READY");
+		long incomplete = addScholarship("incomplete-extraction", "READY");
+		for (long scholarship : List.of(complete, incomplete)) {
+			addCondition(scholarship, 1, "cumulativeGpa", "GTE", "3.2",
+					"전체평점 4.5 만점 기준 3.2 이상(4.3 만점 기준 3.0 이상)", true);
+			jdbc.update("update scholarship_conditions set gpa_scale = 4.5 where scholarship_id = ?", scholarship);
+			jdbc.update("update scholarship_versions set requirements_complete = ? where scholarship_id = ?",
+					scholarship == complete ? 1 : 0, scholarship);
+		}
+		long id = startAnalysis();
+		assertThat(worker.runNext()).isTrue();
+		assertThat(queryResult(id, complete, "eligibility_status")).isEqualTo("ELIGIBLE");
+		assertThat(queryResult(id, incomplete, "eligibility_status")).isEqualTo("NEEDS_REVIEW");
+		assertThat(queryResult(id, incomplete, "unresolved_conditions")).contains("REQUIREMENTS_INCOMPLETE");
+	}
+
 	private static String recommendationsUrl(long analysisId) {
 		return "/api/v1/analyses/" + analysisId + "/recommendations";
 	}

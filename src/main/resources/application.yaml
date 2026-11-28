@@ -13,6 +13,12 @@ spring:
       pool:
         size: 2
 
+document-analysis:
+  enabled: ${DOCUMENT_ANALYSIS_ENABLED:false}
+  base-url: ${FASTAPI_DOCUMENT_ANALYSIS_BASE_URL:http://localhost:8000}
+  source-bucket: ${AWS_S3_BUCKET:}
+  poll-delay: 2s
+
 analysis:
   worker:
     enabled: ${ANALYSIS_WORKER_ENABLED:true}

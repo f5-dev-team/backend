@@ -1,5 +1,6 @@
 package com.f5.scholarship_backend.domain.crawl.service;
 
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Clock;
@@ -79,15 +80,20 @@ public class ScholarshipCollector {
 			return "HELD";
 		}
 		int version = latest == null ? 1 : Math.addExact(latest.getVersion(), 1);
-		versions.save(new ScholarshipVersion(scholarship.getId(), version, post.title(),
-				post.sourceUrl().toString(), post.bodyHtml(), json.writeValueAsString(post.attachments()), clock.instant()));
-		documents.link(scholarship.getId(), version, files);
+		var savedVersion = versions.save(new ScholarshipVersion(scholarship.getId(), version, post.title(),
+				post.sourceUrl().toString(), post.bodyHtml(), null, clock.instant()));
+		var attachmentDocuments = documents.link(scholarship.getId(), version, files);
+		var sourceAttachments = post.attachments().stream().map(attachment ->
+				new SourceAttachment(attachment.name(), attachment.url(), attachmentDocuments.get(attachment))).toList();
+		savedVersion.recordSourceAttachments(json.writeValueAsString(sourceAttachments));
 		state.observe(fingerprint, payload, false, clock.instant());
 		state.imported(fingerprint, version);
 		states.save(state);
 		scholarship.markPending(clock.instant());
 		return "COLLECTED";
 	}
+
+	private record SourceAttachment(String name, URI url, Long documentId) { }
 
 	/** 본문·제목·정렬된 첨부 목록과 실제 파일 내용의 JSON 지문을 계산한다. */
 	private String fingerprint(CrawledPost post, List<StoredAttachment> files) {

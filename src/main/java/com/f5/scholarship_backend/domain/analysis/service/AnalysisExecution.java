@@ -69,7 +69,8 @@ class AnalysisExecution {
 			}
 			var item = target.getItem();
 			var requirements = byScholarship.getOrDefault(item.getId().scholarshipId(), List.of());
-			var result = evaluator.evaluate(profile, requirements, job.getCreatedAt(), target.getStartAt(), target.getEndAt());
+			var result = evaluator.evaluate(profile, requirements, !Boolean.FALSE.equals(target.getRequirementsComplete()),
+					job.getCreatedAt(), target.getStartAt(), target.getEndAt());
 			String periodMessage = result.period() == ApplicationPeriodStatus.UNKNOWN ? "공고에서 신청 기간을 확인해 주세요." : null;
 			item.complete(result.status(), result.period(), periodMessage, json.writeValueAsString(result.reasons()),
 					json.writeValueAsString(result.unmet()), json.writeValueAsString(result.unresolved()),

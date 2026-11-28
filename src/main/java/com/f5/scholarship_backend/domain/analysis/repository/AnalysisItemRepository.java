@@ -23,7 +23,8 @@ public interface AnalysisItemRepository extends JpaRepository<AnalysisItem, Anal
 	List<ItemCounts> countByExclusionReason(long analysisId);
 
 	@Query("""
-			select i as item, v.version as version, v.applicationStartAt as startAt, v.applicationEndAt as endAt
+			select i as item, v.version as version, v.applicationStartAt as startAt, v.applicationEndAt as endAt,
+			       v.requirementsComplete as requirementsComplete
 			from AnalysisItem i left join ScholarshipVersion v
 			    on v.scholarshipId = i.scholarshipId and v.version = i.scholarshipVersion
 			where i.analysisId = :analysisId and i.exclusionReason is null
@@ -36,6 +37,7 @@ public interface AnalysisItemRepository extends JpaRepository<AnalysisItem, Anal
 		Integer getVersion();
 		Instant getStartAt();
 		Instant getEndAt();
+		Boolean getRequirementsComplete();
 	}
 
 	String COMPLETED_RESULTS = """

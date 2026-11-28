@@ -6,6 +6,13 @@ import org.springframework.data.jpa.repository.*;
 import org.springframework.data.repository.query.Param;
 
 public interface ScholarshipVersionRepository extends JpaRepository<ScholarshipVersion, ScholarshipVersion.Key> {
+	Optional<DocumentVersion> findTopByScholarshipIdOrderByVersionDesc(Long scholarshipId);
+
+	interface DocumentVersion {
+		int getVersion();
+		String getOrigin();
+		Long getChangedByUserId();
+	}
 	Optional<ScholarshipVersion> findFirstByScholarshipIdOrderByVersionDesc(Long scholarshipId);
 	@Query("select count(v) from ScholarshipVersion v where v.scholarshipId=:id and v.version>:baseline and (v.changedByUserId is not null or v.origin not in ('CRAWLER','AI'))")
 	long countProtectedSince(@Param("id") Long id, @Param("baseline") int baseline);
